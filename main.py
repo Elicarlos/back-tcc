@@ -4,8 +4,9 @@ import uvicorn
 import httpx
 import os
 from typing import Optional
+from fastapi.middleware.cors import CORSMiddleware
 
-# Configuração via variáveis de ambiente (boa prática para produção)
+
 LANGUAGETOOL_URL = os.getenv("LANGUAGETOOL_URL", "http://127.0.0.1:8010")
 LANGUAGETOOL_TIMEOUT = float(os.getenv("LANGUAGETOOL_TIMEOUT", "30.0"))
 
@@ -20,7 +21,21 @@ app = FastAPI(
     }
 )
 
-# Cliente HTTP reutilizável (melhor performance)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",  # Porta padrão do Vite
+        "http://localhost:3000",  # Porta alternativa do React
+        "http://127.0.0.1:5173",   # Alternativa com 127.0.0.1
+        "http://127.0.0.1:3000",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],  # Permite todos os métodos (GET, POST, etc.)
+    allow_headers=["*"],  # Permite todos os headers
+)
+
+
+
 http_client: Optional[httpx.AsyncClient] = None
 
 @app.get("/")
@@ -112,19 +127,20 @@ async def check_text(request_data: TextRequest):
         )
 
     try:
-        # LanguageTool espera form-data (application/x-www-form-urlencoded), não JSON
         response = await http_client.post(
             f"{LANGUAGETOOL_URL}/v2/check",
             data={
                 "text": request_data.text,
-                "language": "pt-BR"
+                "language": "pt-BR",
+                "level": "picky",
+                "enabledRules": "CONCORDANCIA_SER_PLURAL"               
             }
         )
         
         response.raise_for_status()
         data = response.json()
         
-        # Formata os matches para o formato esperado
+        
         formatted_matches = []
         for match in data.get("matches", []):
             formatted_matches.append({

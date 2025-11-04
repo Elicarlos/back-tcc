@@ -187,7 +187,7 @@ const QuillEditor = forwardRef(function QuillEditor({ value, onChange, placehold
 
   return (
     <div className="quill-editor-wrapper">
-      <div ref={editorRef} style={{ height: '400px' }} />
+      <div ref={editorRef} style={{ height: '700px' }} />
     </div>
   );
 });

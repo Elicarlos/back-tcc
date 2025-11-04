@@ -1,10 +1,11 @@
 .app-container {
-  max-width: 1400px;
-  margin: 0 auto;
+  width: 100%;
+  margin: 0;
   padding: 2rem;
   height: 100vh;
   display: flex;
   flex-direction: column;
+  box-sizing: border-box;
 }
 
 h1 {
@@ -16,7 +17,7 @@ h1 {
 .content-wrapper {
   display: grid;
   grid-template-columns: 3fr 1fr; /* 75% para texto, 25% para resultados */
-  gap: 1.5rem;
+  gap: 3rem;
   flex: 1;
   overflow: hidden;
 }
@@ -25,6 +26,7 @@ h1 {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  min-height: 0;
 }
 
 .text-input {
@@ -194,5 +196,46 @@ h2, h3 {
 
   .text-input {
     min-height: 200px;
+  }
+}
+
+/* Estilos para o Quill Editor */
+.quill-editor-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 400px;
+}
+
+.quill-editor-wrapper .ql-container {
+  font-size: 1rem;
+  font-family: inherit;
+  border-bottom-left-radius: 8px;
+  border-bottom-right-radius: 8px;
+  border: 2px solid #ddd;
+  border-top: none;
+}
+
+.quill-editor-wrapper .ql-toolbar {
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+  border: 2px solid #ddd;
+}
+
+.quill-editor-wrapper .ql-container:focus-within {
+  border-color: #646cff;
+}
+
+.quill-editor-wrapper .ql-toolbar:focus-within {
+  border-color: #646cff;
+}
+
+@media (max-width: 768px) {
+  .quill-editor-wrapper {
+    min-height: 300px;
+  }
+  
+  .quill-editor-wrapper > div {
+    height: 300px !important;
   }
 }

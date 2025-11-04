@@ -1,48 +1,35 @@
 .venv
 venv
-
-# Arquivo .gitignore para projetos React
-
-### Dependências ###
-# Pasta que armazena todos os pacotes baixados.
-# Ela pode ser recriada a qualquer momento usando `npm install` ou `yarn install`.
 /node_modules
 
-### Arquivos de Build ###
-# Pastas onde o código compilado e otimizado é colocado.
+
 /build
 /dist
 
-### Logs ###
-# Arquivos de log gerados pelo npm, yarn, etc.
+
 npm-debug.log*
 yarn-error.log*
 yarn-debug.log*
 
-### Variáveis de Ambiente (MUITO IMPORTANTE) ###
-# Estes arquivos contêm segredos, chaves de API e configurações locais.
-# NUNCA devem ser enviados para o repositório.
+
 .env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
 
-# Permite que o arquivo de exemplo (sem segredos) seja comitado.
+
 !*.env.example
 
-### Relatórios de Teste ###
-# Pasta gerada pelos testes de cobertura.
+
 /coverage
 
-### Arquivos de Sistema Operacional ###
-# Arquivos específicos do macOS e Windows.
+
 .DS_Store
 Thumbs.db
 ._*
 
-### Arquivos de Editor / IDE ###
-# Configurações locais de editores de código.
+
 .vscode/
 .idea/
 *.sublime-workspace

@@ -2,14 +2,21 @@ import { useState } from 'react'
 import reactLogo from './assets/react.svg'
 import viteLogo from '/vite.svg'
 import './App.css'
+import QuillEditor from './QuillEditor'
 
 const API_URL = 'http://127.0.0.1:8000'
 
 function App() {  
   const [text, setText] = useState('');
+  const [htmlContent, setHtmlContent] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
+
+  const handleEditorChange = (html, plainText) => {
+    setHtmlContent(html);
+    setText(plainText.trim()); // Usa texto puro para a API
+  };
 
   const checkText = async () => {
     if (!text.trim()) {
@@ -53,12 +60,10 @@ function App() {
 
       <div className='content-wrapper'>
         <div className='input-section'>
-          <textarea 
-            value={text}
-            onChange={(e) => setText(e.target.value)}
+          <QuillEditor 
+            value={htmlContent}
+            onChange={handleEditorChange}
             placeholder='Digite o texto que deseja verificar'
-            rows={12}
-            className='text-input'
           />
 
           <button

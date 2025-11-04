@@ -13,10 +13,31 @@ function App() {
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
   const debounceTimerRef = useRef(null);
+  const editorRef = useRef(null);
 
   const handleEditorChange = (html, plainText) => {
     setHtmlContent(html);
     setText(plainText); // Mantém o texto original para corresponder aos offsets
+  };
+
+  const handleReplaceText = (matchIndex, replacementIndex) => {
+    if (!result || !result.matches || matchIndex >= result.matches.length) return;
+    
+    const match = result.matches[matchIndex];
+    const replacement = match.replacements[replacementIndex];
+    
+    if (!replacement || !editorRef.current) return;
+    
+    const replacementText = typeof replacement === 'string' 
+      ? replacement 
+      : replacement.value;
+    
+    // Substitui o texto usando o método do editor
+    editorRef.current.replaceText(
+      match.offset,
+      match.length,
+      replacementText
+    );
   };
 
   const checkText = useCallback(async () => {
@@ -89,6 +110,7 @@ function App() {
       <div className='content-wrapper'>
         <div className='input-section'>
           <QuillEditor 
+            ref={editorRef}
             value={htmlContent}
             onChange={handleEditorChange}
             placeholder='Digite o texto que deseja verificar'
@@ -127,13 +149,21 @@ function App() {
                         <div className="replacements">
                           <strong>Sugestões:</strong>
                           <ul>
-                            {match.replacements.map((replacement, i) => (
-                              <li key={i}>
-                                {typeof replacement === 'string' 
-                                  ? replacement 
-                                  : replacement.value}
-                              </li>
-                            ))}
+                            {match.replacements.map((replacement, i) => {
+                              const replacementText = typeof replacement === 'string' 
+                                ? replacement 
+                                : replacement.value;
+                              return (
+                                <li 
+                                  key={i}
+                                  className="replacement-item"
+                                  onClick={() => handleReplaceText(index, i)}
+                                  title="Clique para substituir"
+                                >
+                                  {replacementText}
+                                </li>
+                              );
+                            })}
                           </ul>
                         </div>
                       )}

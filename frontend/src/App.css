@@ -175,6 +175,18 @@ h1 {
   font-size: 0.85rem;
 }
 
+.replacement-item {
+  cursor: pointer;
+  padding: 0.3rem 0.5rem;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.replacement-item:hover {
+  background-color: #e8f5e9;
+  text-decoration: underline;
+}
+
 .rule-id {
   font-size: 0.75rem;
   color: #666;

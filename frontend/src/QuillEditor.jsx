@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
 import Quill from 'quill';
 import 'quill/dist/quill.snow.css';
 
@@ -28,10 +28,41 @@ if (!errorFormatRegistered) {
   errorFormatRegistered = true;
 }
 
-function QuillEditor({ value, onChange, placeholder, errors }) {
+const QuillEditor = forwardRef(function QuillEditor({ value, onChange, placeholder, errors }, ref) {
   const editorRef = useRef(null);
   const quillInstanceRef = useRef(null);
   const isUpdatingRef = useRef(false);
+
+  // Expõe métodos para o componente pai
+  useImperativeHandle(ref, () => ({
+    replaceText: (offset, length, replacement) => {
+      if (!quillInstanceRef.current) return;
+      
+      const quill = quillInstanceRef.current;
+      isUpdatingRef.current = true;
+      
+      try {
+        // Remove a formatação de erro primeiro
+        quill.formatText(offset, length, 'error', false, 'api');
+        
+        // Substitui o texto
+        quill.deleteText(offset, length, 'api');
+        quill.insertText(offset, replacement, 'api');
+        
+        // Move o cursor para depois do texto substituído
+        quill.setSelection(offset + replacement.length, 0, 'api');
+        
+        // Atualiza o estado
+        const html = quill.root.innerHTML;
+        const text = quill.getText();
+        onChange(html, text);
+      } catch (e) {
+        console.error('Erro ao substituir texto:', e);
+      } finally {
+        isUpdatingRef.current = false;
+      }
+    }
+  }));
 
   useEffect(() => {
     if (editorRef.current && !quillInstanceRef.current) {
@@ -159,7 +190,6 @@ function QuillEditor({ value, onChange, placeholder, errors }) {
       <div ref={editorRef} style={{ height: '400px' }} />
     </div>
   );
-}
+});
 
 export default QuillEditor;
-

@@ -152,7 +152,7 @@ async def get_pontuacao_sugestao(text: str):
     
     prompt = f"""Você é um especialista em pontuação em português.
     Analise o texto e sugira onde adicionar vírgulas e pontos para melhorar a clareza.
-Responda APENAS com o texto corrigido, sem explicações ou comentários adicionais.
+    Responda APENAS com o texto corrigido, sem explicações ou comentários adicionais.
 
     Texto: {text}
     Correção:"""
@@ -199,13 +199,13 @@ async def enriquecer_match_com_ia(texto: str, match: Dict) -> Dict:
         
         prompt = f"""Você é um professor de português especializado em redação.
 
-Erro encontrado: "{erro_texto}"
-Contexto: "{contexto_antes}[ERRO]{contexto_depois}"
-Mensagem do LanguageTool: {match["message"]}
-Sugestões de correção: {sugestoes_texto}
+        Erro encontrado: "{erro_texto}"
+        Contexto: "{contexto_antes}[ERRO]{contexto_depois}"
+        Mensagem do LanguageTool: {match["message"]}
+        Sugestões de correção: {sugestoes_texto}
 
-Forneça uma explicação didática e curta (máximo 2 linhas) sobre este erro, explicando por que está errado e como corrigir.
-Responda APENAS com a explicação, sem formatação ou prefixos."""
+        Forneça uma explicação didática e curta (máximo 2 linhas) sobre este erro, explicando por que está errado e como corrigir.
+        Responda APENAS com a explicação, sem formatação ou prefixos."""
 
         # Tenta usar modelos alternativos se o padrão falhar
         model = obter_modelo_gemini()
@@ -245,12 +245,12 @@ async def melhorar_sugestoes_com_ia(texto: str, match: Dict) -> Dict:
         contexto_depois = texto[match["offset"] + match["length"]:match["offset"] + match["length"] + 30]
         
         prompt = f"""O texto contém um erro neste trecho:
-"{erro_texto}" no contexto: "{contexto_antes}[ERRO]{contexto_depois}"
+        "{erro_texto}" no contexto: "{contexto_antes}[ERRO]{contexto_depois}"
 
-Erro detectado: {match["message"]}
+        Erro detectado: {match["message"]}
 
-Sugira 3 alternativas de correção adequadas ao contexto de uma redação formal.
-Responda APENAS com uma lista JSON no formato: ["sugestão1", "sugestão2", "sugestão3"]"""
+        Sugira 3 alternativas de correção adequadas ao contexto de uma redação formal.
+        Responda APENAS com uma lista JSON no formato: ["sugestão1", "sugestão2", "sugestão3"]"""
 
         # Tenta usar modelos alternativos se o padrão falhar
         model = obter_modelo_gemini()
@@ -306,19 +306,27 @@ async def detectar_erros_acentuacao_com_ia(texto: str, matches_languagetool: Lis
     try:
         prompt = f"""Você é um especialista em gramática portuguesa do Brasil.
 
-Analise este texto e identifique TODOS os erros de acentuação.
-Texto: "{texto}"
+        Analise este texto e identifique SOMENTE erros REAIS de acentuação (palavras que deveriam ter acento mas NÃO têm):
 
-Responda APENAS com um JSON array válido (sem texto adicional, sem markdown, sem explicações):
-[
-  {{
-    "palavra": "palavra sem acento",
-    "correcao": "palavra corrigida",
-    "mensagem": "explicação curta"
-  }}
-]
+        Texto: "{texto}"
 
-Se não houver erros, retorne: []"""
+        IMPORTANTE:
+        - NÃO marque palavras que já estão corretamente acentuadas
+        - NÃO marque palavras que não precisam de acento
+        - Identifique APENAS palavras sem acento que DEVERIAM ter acento
+        - Exemplos CORRETOS: "porem" (deveria ser "porém"), "tambem" (deveria ser "também")
+        - Exemplos INCORRETOS: "regiões" (já está correto), "nação" (já está correto)
+
+        Responda APENAS com um JSON array válido (sem texto adicional, sem markdown, sem explicações):
+        [
+        {{
+            "palavra": "palavra sem acento encontrada",
+            "correcao": "palavra corrigida com acento",
+            "mensagem": "explicação curta do erro"
+        }}
+        ]
+
+        Se não houver erros REAIS de acentuação, retorne: []"""
 
         model = obter_modelo_gemini()
         if model is None:
@@ -327,7 +335,7 @@ Se não houver erros, retorne: []"""
         response = model.generate_content(
             prompt,
             generation_config=genai.types.GenerationConfig(
-                temperature=0.2,
+                temperature=0.1,  # Reduzido para ser mais preciso
                 max_output_tokens=400,
                 response_mime_type="application/json"  # Força resposta em JSON
             )
@@ -359,6 +367,12 @@ Se não houver erros, retorne: []"""
                         correcao = erro.get("correcao", "").strip()
                         
                         if not palavra_erro or not correcao:
+                            continue
+                        
+                        # Validação: não permite que a correção seja igual à palavra original
+                        # Isso evita falsos positivos onde a palavra já está correta
+                        if palavra_erro.lower() == correcao.lower():
+                            print(f"⚠ Ignorando falso positivo: '{palavra_erro}' já está correto (correção igual à palavra)")
                             continue
                         
                         # Busca case-insensitive
@@ -403,37 +417,53 @@ async def analisar_redacao_completa(texto: str, matches: List[Dict]) -> Optional
         num_erros = len(matches)
         
         if num_erros == 0:
-            prompt = f"""Analise esta redação e responda SOMENTE com JSON válido (sem texto adicional):
+            prompt = f"""Analise esta redação e responda SOMENTE com JSON válido (sem texto adicional, sem markdown):
 
 Texto: "{texto}"
 
 Responda APENAS com este JSON (sem explicações, sem markdown, sem texto antes ou depois):
 {{
-    "estrutura_ok": true/false,
-    "coesao": "análise sobre coesão",
-    "coerencia": "análise sobre coerência",
-    "sugestoes_gerais": ["sugestão1", "sugestão2", "sugestão3"],
-    "nivel_estimado": "básico/intermediário/avançado",
-    "pontos_fortes": ["ponto1", "ponto2"],
-    "pontos_melhoria": ["melhoria1", "melhoria2"],
-    "nota_estimada": "nota 0-1000"
-}}"""
+    "nivel_estimado": "básico" ou "intermediário" ou "avançado",
+    "coesao": "análise descritiva sobre a coesão textual",
+    "coerencia": "análise descritiva sobre a coerência textual",
+    "sugestoes_gerais": ["sugestão específica 1", "sugestão específica 2", "sugestão específica 3"],
+    "pontos_fortes": ["ponto forte 1", "ponto forte 2"],
+    "pontos_melhoria": ["melhoria 1", "melhoria 2"],
+    "exemplos_melhoria": [
+        {{
+            "problema": "frase ou trecho problemático identificado",
+            "sugestao": "versão melhorada da frase",
+            "explicacao": "breve explicação do porquê da melhoria"
+        }}
+    ]
+}}
+
+IMPORTANTE: 
+- "sugestoes_gerais" deve ser um ARRAY de strings, não texto livre
+- "exemplos_melhoria" deve conter exemplos PRÁTICOS de como melhorar frases específicas do texto
+- Para cada exemplo, inclua: a frase problemática original, a versão melhorada e uma explicação breve
+- Responda APENAS o JSON, sem texto adicional"""
         else:
             # Análise básica quando ainda há alguns erros
             erros_resumo = "\n".join([f"- {m['message']}" for m in matches[:3]])
-            prompt = f"""Analise esta redação e responda SOMENTE com JSON válido:
+            prompt = f"""Analise esta redação e responda SOMENTE com JSON válido (sem texto adicional, sem markdown):
 
 Texto: "{texto}"
 Erros encontrados: {num_erros}
+Principais erros: {erros_resumo}
 
 Responda APENAS com este JSON (sem explicações, sem markdown):
 {{
-    "coesao": "análise breve",
-    "coerencia": "análise breve",
-    "sugestoes_gerais": ["sugestão1", "sugestão2"],
-    "nivel_estimado": "básico/intermediário/avançado",
+    "nivel_estimado": "básico" ou "intermediário" ou "avançado",
+    "coesao": "análise breve sobre coesão",
+    "coerencia": "análise breve sobre coerência",
+    "sugestoes_gerais": ["sugestão específica 1", "sugestão específica 2"],
     "mensagem": "Corrija os erros básicos para obter análise completa"
-}}"""
+}}
+
+IMPORTANTE: 
+- "sugestoes_gerais" deve ser um ARRAY de strings, não texto livre
+- Responda APENAS o JSON, sem texto adicional"""
 
         # Tenta usar modelos alternativos se o padrão falhar
         model = obter_modelo_gemini()
@@ -474,6 +504,41 @@ Responda APENAS com este JSON (sem explicações, sem markdown):
                 resultado = json.loads(resposta_texto)
                 # Verifica se é um dict válido
                 if isinstance(resultado, dict):
+                    # Garante que sugestoes_gerais seja sempre um array
+                    if "sugestoes_gerais" in resultado:
+                        if isinstance(resultado["sugestoes_gerais"], str):
+                            # Se veio como string, tenta dividir em linhas ou por ponto
+                            sugestoes = resultado["sugestoes_gerais"]
+                            # Tenta dividir por linhas primeiro
+                            if "\n" in sugestoes:
+                                resultado["sugestoes_gerais"] = [s.strip() for s in sugestoes.split("\n") if s.strip()]
+                            elif ". " in sugestoes:
+                                # Divide por ponto e espaço
+                                resultado["sugestoes_gerais"] = [s.strip() + "." for s in sugestoes.split(". ") if s.strip()]
+                            else:
+                                # Se não conseguir dividir, coloca como array com um único item
+                                resultado["sugestoes_gerais"] = [sugestoes]
+                        elif not isinstance(resultado["sugestoes_gerais"], list):
+                            resultado["sugestoes_gerais"] = []
+                    
+                    # Garante que pontos_fortes seja sempre um array
+                    if "pontos_fortes" in resultado and not isinstance(resultado["pontos_fortes"], list):
+                        if isinstance(resultado["pontos_fortes"], str):
+                            resultado["pontos_fortes"] = [resultado["pontos_fortes"]]
+                        else:
+                            resultado["pontos_fortes"] = []
+                    
+                    # Garante que pontos_melhoria seja sempre um array
+                    if "pontos_melhoria" in resultado and not isinstance(resultado["pontos_melhoria"], list):
+                        if isinstance(resultado["pontos_melhoria"], str):
+                            resultado["pontos_melhoria"] = [resultado["pontos_melhoria"]]
+                        else:
+                            resultado["pontos_melhoria"] = []
+                    
+                    # Garante que exemplos_melhoria seja sempre um array
+                    if "exemplos_melhoria" in resultado and not isinstance(resultado["exemplos_melhoria"], list):
+                        resultado["exemplos_melhoria"] = []
+                    
                     return resultado
                 else:
                     print(f"Resposta não é um objeto JSON válido: {type(resultado)}")

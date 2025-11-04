@@ -77,8 +77,9 @@ function App() {
     if (!result || !result.matches) return;
     
     const match = result.matches[matchIndex];
-    // Cria um ID único para o erro baseado em offset + length + message
-    const errorId = `${match.offset}-${match.length}-${match.message}`;
+    // Cria um ID único baseado no texto do erro + mensagem (mais estável que offset)
+    const erroTexto = text.substring(match.offset, match.offset + match.length);
+    const errorId = `${erroTexto}::${match.message}`;
     
     setIgnoredErrors(prev => {
       const newSet = new Set(prev);
@@ -108,7 +109,8 @@ function App() {
     
     // Remove o erro específico da lista de ignorados se estava ignorado
     // Isso permite que o erro desapareça após a correção
-    const errorId = `${match.offset}-${match.length}-${match.message}`;
+    const erroTexto = text.substring(match.offset, match.offset + match.length);
+    const errorId = `${erroTexto}::${match.message}`;
     setIgnoredErrors(prev => {
       const newSet = new Set(prev);
       newSet.delete(errorId);
@@ -152,14 +154,22 @@ function App() {
       const newMatches = data.matches || [];
       const preservedIgnored = new Set();
       
+      console.log('Erros ignorados anteriores:', Array.from(previousIgnoredIds)); // Debug
+      console.log('Novos erros encontrados:', newMatches.length); // Debug
+      
       // Verifica quais erros ignorados ainda existem na nova verificação
-      // Compara por offset + length + message para garantir que é o mesmo erro
+      // Usa texto do erro + mensagem para identificar (mais estável que offset)
       newMatches.forEach((match) => {
-        const errorId = `${match.offset}-${match.length}-${match.message}`;
+        const erroTexto = text.substring(match.offset, match.offset + match.length);
+        const errorId = `${erroTexto}::${match.message}`;
+        
         if (previousIgnoredIds.has(errorId)) {
           preservedIgnored.add(errorId);
+          console.log('Erro ignorado preservado:', errorId); // Debug
         }
       });
+      
+      console.log('Erros ignorados preservados:', Array.from(preservedIgnored)); // Debug
       
       setResult(data);
       setAiEnabled(data.ai_enabled || false);
@@ -214,7 +224,8 @@ function App() {
             onChange={handleEditorChange}
             placeholder='Digite o texto que deseja verificar'
             errors={result?.matches?.filter((match, index) => {
-              const errorId = `${match.offset}-${match.length}-${match.message}`;
+              const erroTexto = text.substring(match.offset, match.offset + match.length);
+              const errorId = `${erroTexto}::${match.message}`;
               return !ignoredErrors.has(errorId);
             }) || []}
           />
@@ -264,7 +275,7 @@ function App() {
               
               {result.suggestion && (
                 <div className="suggestion-box">
-                  <strong>💡 Dica:</strong> {result.suggestion}
+                  <strong>Dica:</strong> {result.suggestion}
                 </div>
               )}
               
@@ -278,9 +289,9 @@ function App() {
                     title={result.ai_ready ? "Clique para obter análise completa com IA" : "Corrija os erros básicos primeiro para melhor análise"}
                   >
                     {aiLoading ? (
-                      <>⏳ Analisando com IA...</>
+                      <>Analisando com IA...</>
                     ) : (
-                      <>🤖 Análise Completa com IA</>
+                      <>Análise Completa com IA</>
                     )}
                   </button>
                 </div>
@@ -301,7 +312,8 @@ function App() {
                 <div className="matches-section">
                   {result.matches
                     .map((match, index) => {
-                      const errorId = `${match.offset}-${match.length}-${match.message}`;
+                      const erroTexto = text.substring(match.offset, match.offset + match.length);
+                      const errorId = `${erroTexto}::${match.message}`;
                       return { match, originalIndex: index, errorId, isIgnored: ignoredErrors.has(errorId) };
                     })
                     .filter(({ isIgnored }) => !isIgnored)
@@ -374,7 +386,7 @@ function App() {
               {/* Análise completa da redação com IA */}
               {aiAnalysis && aiAnalysis.ai_analysis && (
                 <div className="ai-analysis-section">
-                  <h3>Análise da Redação</h3>
+                  <h3>Análise do Texto</h3>
                   
                   {aiAnalysis.ai_analysis.nivel_estimado && (
                     <div className="analysis-item">
@@ -410,7 +422,7 @@ function App() {
                   
                   {aiAnalysis.ai_analysis.pontos_melhoria && aiAnalysis.ai_analysis.pontos_melhoria.length > 0 && (
                     <div className="analysis-item">
-                      <strong>🔧 Pontos de melhoria:</strong>
+                      <strong>Pontos de melhoria:</strong>
                       <ul>
                         {aiAnalysis.ai_analysis.pontos_melhoria.map((ponto, i) => (
                           <li key={i}>{ponto}</li>
@@ -427,6 +439,29 @@ function App() {
                           <li key={i}>{sugestao}</li>
                         ))}
                       </ul>
+                    </div>
+                  )}
+                  
+                  {aiAnalysis.ai_analysis.exemplos_melhoria && aiAnalysis.ai_analysis.exemplos_melhoria.length > 0 && (
+                    <div className="analysis-item">
+                      <strong>📝 Exemplos práticos de melhoria:</strong>
+                      {aiAnalysis.ai_analysis.exemplos_melhoria.map((exemplo, i) => (
+                        <div key={i} className="exemplo-melhoria" style={{ marginTop: '1rem', padding: '1rem', background: '#f8f9fa', borderRadius: '6px', border: '1px solid #e0e0e0' }}>
+                          <div style={{ marginBottom: '0.5rem' }}>
+                            <strong style={{ color: '#d32f2f' }}>❌ Problema:</strong>
+                            <p style={{ margin: '0.25rem 0', fontStyle: 'italic' }}>"{exemplo.problema || exemplo.frase_original || 'N/A'}"</p>
+                          </div>
+                          <div style={{ marginBottom: '0.5rem' }}>
+                            <strong style={{ color: '#2e7d32' }}>✅ Sugestão:</strong>
+                            <p style={{ margin: '0.25rem 0', fontWeight: '500' }}>"{exemplo.sugestao || exemplo.versao_melhorada || 'N/A'}"</p>
+                          </div>
+                          {exemplo.explicacao && (
+                            <div style={{ fontSize: '0.9rem', color: '#666', marginTop: '0.5rem' }}>
+                              <strong>💡 Por quê?</strong> {exemplo.explicacao}
+                            </div>
+                          )}
+                        </div>
+                      ))}
                     </div>
                   )}
                   

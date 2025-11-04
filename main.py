@@ -13,7 +13,7 @@ LANGUAGETOOL_TIMEOUT = float(os.getenv("LANGUAGETOOL_TIMEOUT", "30.0"))
 
 HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY", "")  # Opcional, pode usar sem chave com limites menores
 HUGGINGFACE_MODEL = os.getenv("HUGGINGFACE_MODEL", "pierreguillou/gpt2-small-portuguese")
-HUGGINGFACE_API_URL = f"https://api-inference.huggingface.co/models/{HUGGINGFACE_MODEL}" 
+HUGGINGFACE_API_URL = f"https://router.huggingface.co/hf-inference/v1/models/{HUGGINGFACE_MODEL}" 
 ENABLE_LLM = os.getenv("ENABLE_LLM", "true").lower() == "true"
 
 
@@ -64,57 +64,50 @@ async def get_pontuacao_sugestao(text: str):
 
     try: 
         async with httpx.AsyncClient(timeout=15.0) as client:
-            headers = {}
+            headers = {"Content-Type": "application/json"}
 
             if HUGGINGFACE_API_KEY:
-                headers["Autorization"] = f"Bearer { HUGGINGFACE_API_KEY}"
+                headers["Authorization"] = f"Bearer {HUGGINGFACE_API_KEY}"
 
             print(f"Enviando a requisçao para a Hugging Face ....")
             response = await client.post(
                 HUGGINGFACE_API_URL,
-                 json={
+                headers=headers,
+                json={
                     "inputs": prompt,
-                    "paramenters": {
+                    "parameters": {
                         "max_new_tokens": 500,
                         "temperature": 0.3,
                         "return_full_text": False                     
                     }
                 }
             )
+            
             # Verificar status antes de processar
-            if response.status_code != 200:
-                error_text = response.text[:300] if response.text else "Sem detalhes"
-                print(f"ERRO {response.status_code} do Ollama: {error_text}")
-                if response.status_code == 500:
-                    print(f"Erro 500 geralmente indica que o modelo '{OLLAMA_MODEL}' não foi baixado.")
-                    print(f"   Execute no terminal: ollama pull {OLLAMA_MODEL}")
-                try:
-                    error_json = response.json()
-                    if "error" in error_json:
-                        print(f"   Detalhes: {error_json['error']}")
-                except:
-                    pass
+            if response.status_code == 503:
+                print("Modelo está carregando")
                 return None
             
             response.raise_for_status()
             result = response.json()
-            suggestion = result.get("response", "").strip()
             
-            if suggestion:
-                print(f"LLM retornou sugestão: {suggestion[:100]}...")  # Primeiros 100 caracteres
-            else:
-                print("LLM retornou resposta vazia")
+            # Extrair o texto gerado da resposta
+            if isinstance(result, list) and len(result) > 0:
+                if "generated_text" in result[0]:
+                    return result[0]["generated_text"].strip()
+            elif isinstance(result, dict) and "generated_text" in result:
+                return result["generated_text"].strip()
             
-            return suggestion
-    except httpx.ConnectError:
-        print(f"ERRO: Não foi possível conectar ao Ollama em {OLLAMA_URL}")
-        print(f"   Verifique se o Ollama está rodando: ollama serve")
+            return None
+            
+    except httpx.HTTPStatusError as e:
+        print(f"ERRO {e.response.status_code} do Hugging Face: {e.response.text}")
         return None
     except httpx.TimeoutException:
-        print(f"ERRO: Timeout ao chamar Ollama (mais de 15 segundos)")
+        print("Timeout ao conectar com Hugging Face")
         return None
     except Exception as e:
-        print(f"Erro ao obter pontuação sugerida: {e}")
+        print(f"Erro ao chamar Hugging Face: {str(e)}")
         return None
 
 @app.get("/")
@@ -151,34 +144,32 @@ async def health_check():
         health_status["services"]["languagetool"] = {"status": "unavailable", "error": str(e)}
         health_status["status"] = "degraded"
     
-    # Verificar Ollama (LLM)
+    # Verificar Hugging Face (LLM)
     try:
         if not ENABLE_LLM:
-            health_status["services"]["ollama"] = {"status": "disabled", "reason": "ENABLE_LLM=false"}
+            health_status["services"]["huggingface"] = {"status": "disabled", "reason": "ENABLE_LLM=false"}
         else:
             async with httpx.AsyncClient(timeout=5.0) as client:
-                response = await client.get(f"{OLLAMA_URL}/api/tags")
-                if response.status_code == 200:
-                    models = response.json().get("models", [])
-                    model_names = [m.get("name", "") for m in models]
-                    health_status["services"]["ollama"] = {
+                # Testa conectividade básica com o router
+                response = await client.get("https://router.huggingface.co")
+                if response.status_code in [200, 404]:  # 404 é OK, significa que o router está funcionando
+                    health_status["services"]["huggingface"] = {
                         "status": "connected",
-                        "url": OLLAMA_URL,
-                        "model_configured": OLLAMA_MODEL,
-                        "models_available": model_names
+                        "url": HUGGINGFACE_API_URL,
+                        "model_configured": HUGGINGFACE_MODEL
                     }
                 else:
-                    health_status["services"]["ollama"] = {"status": "degraded", "status_code": response.status_code}
+                    health_status["services"]["huggingface"] = {"status": "degraded", "status_code": response.status_code}
                     health_status["status"] = "degraded"
     except httpx.ConnectError:
-        health_status["services"]["ollama"] = {
+        health_status["services"]["huggingface"] = {
             "status": "unavailable",
-            "error": f"Não foi possível conectar em {OLLAMA_URL}",
-            "suggestion": "Verifique se o Ollama está rodando: ollama serve"
+            "error": "Não foi possível conectar ao Hugging Face",
+            "suggestion": "Verifique sua conexão com a internet"
         }
         health_status["status"] = "degraded"
     except Exception as e:
-        health_status["services"]["ollama"] = {"status": "unavailable", "error": str(e)}
+        health_status["services"]["huggingface"] = {"status": "unavailable", "error": str(e)}
         health_status["status"] = "degraded"
     
     return health_status

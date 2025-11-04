@@ -2,13 +2,40 @@ import { useEffect, useRef } from 'react';
 import Quill from 'quill';
 import 'quill/dist/quill.snow.css';
 
-function QuillEditor({ value, onChange, placeholder }) {
+// Registra um formato customizado para marcar erros (apenas uma vez, ANTES de criar instâncias)
+let errorFormatRegistered = false;
+
+if (!errorFormatRegistered) {
+  const Inline = Quill.import('blots/inline');
+  
+  class ErrorBlot extends Inline {
+    static blotName = 'error';
+    static tagName = 'span';
+    static className = 'ql-error';
+    
+    static create() {
+      const node = super.create();
+      node.setAttribute('class', 'ql-error');
+      return node;
+    }
+    
+    static formats() {
+      return true;
+    }
+  }
+  
+  Quill.register(ErrorBlot, true);
+  errorFormatRegistered = true;
+}
+
+function QuillEditor({ value, onChange, placeholder, errors }) {
   const editorRef = useRef(null);
   const quillInstanceRef = useRef(null);
+  const isUpdatingRef = useRef(false);
 
   useEffect(() => {
     if (editorRef.current && !quillInstanceRef.current) {
-      // Inicializa o Quill
+      
       quillInstanceRef.current = new Quill(editorRef.current, {
         theme: 'snow',
         placeholder: placeholder || 'Digite o texto que deseja verificar',
@@ -24,31 +51,108 @@ function QuillEditor({ value, onChange, placeholder }) {
         }
       });
 
-      // Define o conteúdo inicial
+      
       if (value) {
         quillInstanceRef.current.root.innerHTML = value;
       }
 
-      // Escuta mudanças no editor
-      quillInstanceRef.current.on('text-change', () => {
+      
+      quillInstanceRef.current.on('text-change', () => {        
+        if (isUpdatingRef.current) {
+          return;
+        }
+        
         const html = quillInstanceRef.current.root.innerHTML;
         const text = quillInstanceRef.current.getText();
-        // Chama onChange com texto HTML e texto puro
+       
         onChange(html, text);
       });
     }
 
     return () => {
-      // Cleanup se necessário
+      
     };
   }, []);
 
-  // Atualiza o conteúdo quando value muda externamente
-  useEffect(() => {
-    if (quillInstanceRef.current && value !== quillInstanceRef.current.root.innerHTML) {
-      quillInstanceRef.current.root.innerHTML = value || '';
+  
+  useEffect(() => {    
+    // Só atualiza o conteúdo se o valor vier de fora (prop inicial) e não estivermos atualizando
+    // Não atualiza durante a digitação normal do usuário
+    if (quillInstanceRef.current && 
+        value && 
+        !isUpdatingRef.current &&
+        quillInstanceRef.current.getText().trim() === '' &&
+        (!errors || errors.length === 0)) {
+      // Só atualiza se o editor estiver vazio (inicialização)
+      isUpdatingRef.current = true;
+      const delta = quillInstanceRef.current.clipboard.convert(value || '');
+      quillInstanceRef.current.setContents(delta, 'silent');
+      isUpdatingRef.current = false;
     }
   }, [value]);
+
+  
+  useEffect(() => {
+    if (!quillInstanceRef.current) {
+      return;
+    }
+
+    // Aguarda um pouco para garantir que o editor está pronto
+    const timeoutId = setTimeout(() => {
+      if (!quillInstanceRef.current) return;
+
+      const quill = quillInstanceRef.current;
+      const text = quill.getText();
+      
+      if (!errors || errors.length === 0) {        
+        // Remove todas as marcações de erro se não houver erros
+        if (text.length > 0) {
+          isUpdatingRef.current = true;
+          quill.formatText(0, text.length, 'error', false);
+          isUpdatingRef.current = false;
+        }
+        return;
+      }
+
+      isUpdatingRef.current = true;
+      
+      // Primeiro, remove todas as marcações de erro existentes
+      if (text.length > 0) {
+        quill.formatText(0, text.length, 'error', false);
+      }
+
+      // Depois, aplica as novas marcações usando seleção e format()
+      const range = quill.getSelection(true);
+      
+      errors.forEach((match) => {
+        const offset = match.offset || 0;
+        const length = match.length || 0;
+        
+        if (offset >= 0 && offset + length <= text.length && length > 0) {
+          try {
+            // Seleciona o texto primeiro
+            quill.setSelection(offset, length, 'api');
+            
+            // Aplica o formato na seleção atual
+            quill.format('error', true, 'api');
+          } catch (e) {
+            console.error('Erro ao marcar texto:', e);
+          }
+        }
+      });
+      
+      // Restaura a seleção original se houver
+      if (range) {
+        quill.setSelection(range.index, range.length, 'api');
+      } else {
+        quill.setSelection(null, 'api');
+      }
+      
+      isUpdatingRef.current = false;
+    }, 200); // Delay aumentado para garantir sincronização
+
+    return () => clearTimeout(timeoutId);
+  }, [errors]);
 
   return (
     <div className="quill-editor-wrapper">

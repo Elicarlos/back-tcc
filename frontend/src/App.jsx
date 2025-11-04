@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import reactLogo from './assets/react.svg'
 import viteLogo from '/vite.svg'
 import './App.css'
@@ -12,15 +12,17 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
+  const debounceTimerRef = useRef(null);
 
   const handleEditorChange = (html, plainText) => {
     setHtmlContent(html);
-    setText(plainText.trim()); // Usa texto puro para a API
+    setText(plainText); // Mantém o texto original para corresponder aos offsets
   };
 
-  const checkText = async () => {
+  const checkText = useCallback(async () => {
     if (!text.trim()) {
       setError("Por favor, digite um texto para verificar.");
+      setResult(null);
       return;
     }
 
@@ -52,11 +54,37 @@ function App() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [text]);
+
+  // Validação automática após a digitação (com debounce)
+  useEffect(() => {
+    // Limpa o timer anterior se existir
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+
+    // Se o texto estiver vazio, limpa os resultados
+    if (!text.trim()) {
+      setResult(null);
+      setError(null);
+      return;
+    }
+
+   
+    debounceTimerRef.current = setTimeout(() => {
+      checkText();
+    }, 1000); 
+
+   
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, [text, checkText]);
 
   return (
-    <div className='app-container'>
-      
+    <div className='app-container'>      
 
       <div className='content-wrapper'>
         <div className='input-section'>
@@ -64,15 +92,14 @@ function App() {
             value={htmlContent}
             onChange={handleEditorChange}
             placeholder='Digite o texto que deseja verificar'
+            errors={result?.matches || []}
           />
 
-          <button
-            onClick={checkText}
-            disabled={loading || !text.trim()}
-            className='check-button'
-          >
-            {loading ? 'Verificando...' : 'Verificar Texto'}
-          </button>
+          {loading && (
+            <div className="loading-indicator">
+              <p>Verificando...</p>
+            </div>
+          )}
 
           {error && (
             <div className="error-message">
@@ -121,7 +148,7 @@ function App() {
             </div>
           ) : (
             <div className="empty-result">
-              <p>Os resultados aparecerão aqui após verificar um texto.</p>
+              <p>Os resultados aparecerão aqui automaticamente enquanto você digita.</p>
             </div>
           )}
         </div>

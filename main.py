@@ -840,5 +840,5 @@ async def analyze_with_ai(request_data: TextRequest):
         raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")
 
 if __name__ == "__main__":
-    print("Iniciando o servidor FastAPI... em http://127.0.0.1:8000")
-    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+    print("Iniciando o servidor FastAPI... em http://0.0.0.0:8000")
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

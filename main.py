@@ -10,7 +10,15 @@ from fastapi.middleware.cors import CORSMiddleware
 import google.generativeai as genai
 
 
-LANGUAGETOOL_URL = os.getenv("LANGUAGETOOL_URL", "http://127.0.0.1:8010")
+def obter_languagetool_url():
+    url = os.getenv("LANGUAGETOOL_URL")
+    if url:
+        return url
+    if os.path.exists("/.dockerenv"):
+        return "http://languagetool:8010"
+    return "http://127.0.0.1:8010"
+
+LANGUAGETOOL_URL = obter_languagetool_url()
 LANGUAGETOOL_TIMEOUT = float(os.getenv("LANGUAGETOOL_TIMEOUT", "30.0"))
 
 
@@ -636,30 +644,26 @@ async def startup_event():
     """
     global http_client
     
+    # Cria o cliente HTTP de forma incondicional para permitir conexões futuras
+    http_client = httpx.AsyncClient(
+        timeout=httpx.Timeout(LANGUAGETOOL_TIMEOUT),
+        limits=httpx.Limits(max_keepalive_connections=10, max_connections=20)
+    )
+    
     print(f"Conectando ao servidor LanguageTool ({LANGUAGETOOL_URL})...")
 
     try:
-        
-        http_client = httpx.AsyncClient(
-            timeout=httpx.Timeout(LANGUAGETOOL_TIMEOUT),
-            limits=httpx.Limits(max_keepalive_connections=10, max_connections=20)
-        )
-        
-        
         response = await http_client.get(f"{LANGUAGETOOL_URL}/v2/languages", timeout=5.0)
-        
         if response.status_code == 200:
             print("✓ Conectado ao LanguageTool com sucesso.")
         else:
             print(f"⚠ LanguageTool respondeu com status {response.status_code}")
             
     except httpx.ConnectError:
-        print(f"✗ ERRO: Não foi possível conectar ao LanguageTool em {LANGUAGETOOL_URL}")
-        print(f"Verifique se o contêiner Docker 'erikvl87/languagetool' está rodando.")
-        http_client = None
+        print(f"⚠ AVISO: Não foi possível conectar ao LanguageTool em {LANGUAGETOOL_URL} neste momento.")
+        print(f"O serviço pode estar inicializando. Conexões futuras serão tentadas dinamicamente.")
     except Exception as e:
-        print(f"✗ ERRO: Falha ao inicializar cliente HTTP: {e}")
-        http_client = None
+        print(f"⚠ AVISO: Falha no teste de conexão com o LanguageTool: {e}")
 
 @app.on_event("shutdown")
 async def shutdown():

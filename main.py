@@ -18,7 +18,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyA8wznDIh3Vhi3dgovlCE47Azb1_q
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-pro")
 ENABLE_LLM = os.getenv("ENABLE_LLM", "true").lower() == "true"
 
-# Configura o Gemini se a chave estiver disponível
+
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 
@@ -37,22 +37,22 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:5173",  # Porta padrão do Vite
-        "http://localhost:3000",  # Porta alternativa do React
-        "http://127.0.0.1:5173",   # Alternativa com 127.0.0.1
+        "http://localhost:5173",  
+        "http://localhost:3000",  
+        "http://127.0.0.1:5173",   
         "http://127.0.0.1:3000",
         
     ],
     allow_credentials=True,
-    allow_methods=["*"],  # Permite todos os métodos (GET, POST, etc.)
-    allow_headers=["*"],  # Permite todos os headers
+    allow_methods=["*"],  
+    allow_headers=["*"], 
 )
 
 
 
 http_client: Optional[httpx.AsyncClient] = None
 
-# Cache para o modelo válido encontrado
+
 _modelo_gemini_cache = None
 
 
@@ -76,17 +76,17 @@ def obter_modelo_gemini():
     """Obtém um modelo Gemini válido, tentando vários nomes e testando com uma chamada real"""
     global _modelo_gemini_cache
     
-    # Se já encontrou um modelo válido antes, reutiliza
+
     if _modelo_gemini_cache is not None:
         return _modelo_gemini_cache
     
-    # Primeiro, tenta listar modelos disponíveis
+    
     modelos_disponiveis = listar_modelos_disponiveis()
     
-    # Prepara lista de modelos para tentar
+    
     modelos_tentativas = []
     
-    # Se encontrou modelos disponíveis, usa eles primeiro
+    
     if modelos_disponiveis:
         # Remove prefixo "models/" se existir e adiciona ambas as versões
         for modelo in modelos_disponiveis[:5]:  # Limita a 5 para não demorar muito
@@ -98,8 +98,8 @@ def obter_modelo_gemini():
     # Adiciona modelos padrão como fallback
     modelos_tentativas.extend([
         "gemini-1.5-flash",
-        "gemini-1.5-pro", 
-        "gemini-pro"
+        "gemini-2.0-flash-exp", 
+        "gemini-1.5-pro"
     ])
     
     # Remove duplicatas mantendo ordem
@@ -207,7 +207,7 @@ async def enriquecer_match_com_ia(texto: str, match: Dict) -> Dict:
         Forneça uma explicação didática e curta (máximo 2 linhas) sobre este erro, explicando por que está errado e como corrigir.
         Responda APENAS com a explicação, sem formatação ou prefixos."""
 
-        # Tenta usar modelos alternativos se o padrão falhar
+        
         model = obter_modelo_gemini()
         if model is None:
             return match
@@ -234,7 +234,7 @@ async def melhorar_sugestoes_com_ia(texto: str, match: Dict) -> Dict:
     if not ENABLE_LLM or not GEMINI_API_KEY:
         return match
     
-    # Se já tem 3 ou mais sugestões boas, não precisa melhorar
+    
     sugestoes_existentes = match.get("replacements", [])
     if len(sugestoes_existentes) >= 3:
         return match
@@ -266,9 +266,9 @@ async def melhorar_sugestoes_com_ia(texto: str, match: Dict) -> Dict:
         )
         
         if response and response.text:
-            # Tenta extrair JSON da resposta
+            
             resposta_texto = response.text.strip()
-            # Remove markdown code blocks se houver
+            
             if "```json" in resposta_texto:
                 resposta_texto = resposta_texto.split("```json")[1].split("```")[0].strip()
             elif "```" in resposta_texto:
@@ -277,13 +277,13 @@ async def melhorar_sugestoes_com_ia(texto: str, match: Dict) -> Dict:
             try:
                 sugestoes_ia = json.loads(resposta_texto)
                 if isinstance(sugestoes_ia, list):
-                    # Combina com sugestões existentes
+                    s
                     sugestoes_existentes_valores = [
                         s.get("value", s) if isinstance(s, dict) else str(s) 
                         for s in sugestoes_existentes
                     ]
                     todas_sugestoes = list(set(sugestoes_existentes_valores + sugestoes_ia))
-                    # Converte de volta para o formato esperado
+                    
                     match["replacements"] = [{"value": s} for s in todas_sugestoes[:5]]
             except json.JSONDecodeError:
                 print(f"Erro ao parsear JSON das sugestões: {resposta_texto}")
@@ -299,7 +299,7 @@ async def detectar_erros_acentuacao_com_ia(texto: str, matches_languagetool: Lis
     if not ENABLE_LLM or not GEMINI_API_KEY:
         return []
     
-    # Se já tem muitos erros detectados, não precisa verificar com IA
+    
     if len(matches_languagetool) > 5:
         return []
     
@@ -335,22 +335,25 @@ async def detectar_erros_acentuacao_com_ia(texto: str, matches_languagetool: Lis
         response = model.generate_content(
             prompt,
             generation_config=genai.types.GenerationConfig(
-                temperature=0.1,  # Reduzido para ser mais preciso
+                temperature=0.1,  
                 max_output_tokens=400,
-                response_mime_type="application/json"  # Força resposta em JSON
+                #response_mime_type="application/json"  
             )
         )
+        
+
+
         
         if response and response.text:
             resposta_texto = response.text.strip()
             
-            # Remove markdown code blocks se houver
+            
             if "```json" in resposta_texto:
                 resposta_texto = resposta_texto.split("```json")[1].split("```")[0].strip()
             elif "```" in resposta_texto:
                 resposta_texto = resposta_texto.split("```")[1].split("```")[0].strip()
             
-            # Tenta extrair JSON array mesmo se houver texto adicional
+            
             import re
             json_match = re.search(r'\[[^\]]*(?:\{[^\}]*\}[^\]]*)*\]', resposta_texto, re.DOTALL)
             if json_match:
@@ -359,27 +362,26 @@ async def detectar_erros_acentuacao_com_ia(texto: str, matches_languagetool: Lis
             try:
                 erros_ia = json.loads(resposta_texto)
                 if isinstance(erros_ia, list) and len(erros_ia) > 0:
-                    # Converte para o formato esperado
+                    
                     erros_formatados = []
                     for erro in erros_ia:
-                        # Encontra a posição exata no texto (case insensitive)
+                       
                         palavra_erro = erro.get("palavra", "").strip()
                         correcao = erro.get("correcao", "").strip()
                         
                         if not palavra_erro or not correcao:
                             continue
                         
-                        # Validação: não permite que a correção seja igual à palavra original
-                        # Isso evita falsos positivos onde a palavra já está correta
+                       
                         if palavra_erro.lower() == correcao.lower():
                             print(f"⚠ Ignorando falso positivo: '{palavra_erro}' já está correto (correção igual à palavra)")
                             continue
                         
-                        # Busca case-insensitive
+                        
                         offset = texto.lower().find(palavra_erro.lower())
                         
                         if offset != -1:
-                            # Verifica se já não foi detectado pelo LanguageTool
+                            
                             ja_detectado = any(
                                 m.get("offset") == offset and m.get("length") == len(palavra_erro)
                                 for m in matches_languagetool
@@ -444,7 +446,7 @@ IMPORTANTE:
 - Para cada exemplo, inclua: a frase problemática original, a versão melhorada e uma explicação breve
 - Responda APENAS o JSON, sem texto adicional"""
         else:
-            # Análise básica quando ainda há alguns erros
+            
             erros_resumo = "\n".join([f"- {m['message']}" for m in matches[:3]])
             prompt = f"""Analise esta redação e responda SOMENTE com JSON válido (sem texto adicional, sem markdown):
 
@@ -465,7 +467,7 @@ IMPORTANTE:
 - "sugestoes_gerais" deve ser um ARRAY de strings, não texto livre
 - Responda APENAS o JSON, sem texto adicional"""
 
-        # Tenta usar modelos alternativos se o padrão falhar
+        
         model = obter_modelo_gemini()
         if model is None:
             return None
@@ -482,60 +484,60 @@ IMPORTANTE:
         if response and response.text:
             resposta_texto = response.text.strip()
             
-            # Remove markdown code blocks se houver
+            
             if "```json" in resposta_texto:
                 resposta_texto = resposta_texto.split("```json")[1].split("```")[0].strip()
             elif "```" in resposta_texto:
                 resposta_texto = resposta_texto.split("```")[1].split("```")[0].strip()
             
-            # Tenta extrair JSON mesmo se houver texto adicional antes/depois
+            
             import re
-            # Procura por um objeto JSON completo (com chaves balanceadas)
+           
             json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', resposta_texto, re.DOTALL)
             if json_match:
                 resposta_texto = json_match.group(0)
             else:
-                # Se não encontrou objeto, tenta array
+                
                 json_match = re.search(r'\[[^\[]*(?:\{[^\}]*\}[^\[]*)*\]', resposta_texto, re.DOTALL)
                 if json_match:
                     resposta_texto = json_match.group(0)
             
             try:
                 resultado = json.loads(resposta_texto)
-                # Verifica se é um dict válido
+               
                 if isinstance(resultado, dict):
-                    # Garante que sugestoes_gerais seja sempre um array
+                   
                     if "sugestoes_gerais" in resultado:
                         if isinstance(resultado["sugestoes_gerais"], str):
-                            # Se veio como string, tenta dividir em linhas ou por ponto
+                           
                             sugestoes = resultado["sugestoes_gerais"]
-                            # Tenta dividir por linhas primeiro
+                            
                             if "\n" in sugestoes:
                                 resultado["sugestoes_gerais"] = [s.strip() for s in sugestoes.split("\n") if s.strip()]
                             elif ". " in sugestoes:
-                                # Divide por ponto e espaço
+                                
                                 resultado["sugestoes_gerais"] = [s.strip() + "." for s in sugestoes.split(". ") if s.strip()]
                             else:
-                                # Se não conseguir dividir, coloca como array com um único item
+                                
                                 resultado["sugestoes_gerais"] = [sugestoes]
                         elif not isinstance(resultado["sugestoes_gerais"], list):
                             resultado["sugestoes_gerais"] = []
                     
-                    # Garante que pontos_fortes seja sempre um array
+                    
                     if "pontos_fortes" in resultado and not isinstance(resultado["pontos_fortes"], list):
                         if isinstance(resultado["pontos_fortes"], str):
                             resultado["pontos_fortes"] = [resultado["pontos_fortes"]]
                         else:
                             resultado["pontos_fortes"] = []
                     
-                    # Garante que pontos_melhoria seja sempre um array
+                   
                     if "pontos_melhoria" in resultado and not isinstance(resultado["pontos_melhoria"], list):
                         if isinstance(resultado["pontos_melhoria"], str):
                             resultado["pontos_melhoria"] = [resultado["pontos_melhoria"]]
                         else:
                             resultado["pontos_melhoria"] = []
                     
-                    # Garante que exemplos_melhoria seja sempre um array
+                    #
                     if "exemplos_melhoria" in resultado and not isinstance(resultado["exemplos_melhoria"], list):
                         resultado["exemplos_melhoria"] = []
                     
@@ -544,7 +546,7 @@ IMPORTANTE:
                     print(f"Resposta não é um objeto JSON válido: {type(resultado)}")
                     return None
             except json.JSONDecodeError as e:
-                # Se falhar, tenta extrair informações manualmente
+                
                 print(f"Erro ao parsear JSON da análise completa: {str(e)}")
                 print(f"Resposta recebida: {resposta_texto[:300]}")
                 return {
@@ -605,7 +607,7 @@ async def health_check():
             }
             health_status["status"] = "degraded"
         else:
-            # Testa se consegue listar os modelos (indica que a API está funcionando)
+            
             try:
                 models = genai.list_models()
                 health_status["services"]["gemini"] = {
@@ -637,13 +639,13 @@ async def startup_event():
     print(f"Conectando ao servidor LanguageTool ({LANGUAGETOOL_URL})...")
 
     try:
-        # Cria cliente HTTP reutilizável (melhor performance)
+        
         http_client = httpx.AsyncClient(
             timeout=httpx.Timeout(LANGUAGETOOL_TIMEOUT),
             limits=httpx.Limits(max_keepalive_connections=10, max_connections=20)
         )
         
-        # Testa conectividade
+        
         response = await http_client.get(f"{LANGUAGETOOL_URL}/v2/languages", timeout=5.0)
         
         if response.status_code == 200:
@@ -689,21 +691,21 @@ async def check_text(request_data: TextRequest):
         )
 
     try:
-        # 1. Busca erros com LanguageTool
+        
         response = await http_client.post(
             f"{LANGUAGETOOL_URL}/v2/check",
             data={
                 "text": request_data.text,
                 "language": "pt-BR",
                 "level": "picky",
-                "enabledOnly": "false",  # Habilita todas as regras disponíveis
+                "enabledOnly": "false",  
             }
         )
         
         response.raise_for_status()
         data = response.json()
         
-        # 2. Formata matches básicos
+        
         formatted_matches = []
         for match in data.get("matches", []):
             formatted_match = {
@@ -716,23 +718,21 @@ async def check_text(request_data: TextRequest):
             }
             formatted_matches.append(formatted_match)
         
-        # 3. Se não encontrou erros com LanguageTool e IA está habilitada, tenta detectar erros de acentuação com IA
-        # Isso complementa o LanguageTool detectando erros que ele pode ter perdido
+       
         if ENABLE_LLM and GEMINI_API_KEY:
             erros_acentuacao = await detectar_erros_acentuacao_com_ia(request_data.text, formatted_matches)
             formatted_matches.extend(erros_acentuacao)
         
         num_erros = len(formatted_matches)
         
-        # IA não é mais chamada automaticamente - apenas quando o usuário solicitar via botão
-        # Isso economiza quota e dá controle ao usuário
+        
 
         return {
             "original_text": request_data.text,
             "corrections_found": num_erros,
             "matches": formatted_matches,
             "ai_enabled": ENABLE_LLM and bool(GEMINI_API_KEY),
-            "ai_ready": num_erros == 0,  # Indica se o texto está pronto para análise completa com IA
+            "ai_ready": num_erros == 0,  
             "suggestion": "Corrija os erros básicos e clique em 'Análise Completa com IA' para obter análise detalhada" if num_erros > 0 else None
         }
         
@@ -774,7 +774,7 @@ async def analyze_with_ai(request_data: TextRequest):
         )
     
     try:
-        # Primeiro verifica erros básicos com LanguageTool
+        
         if http_client is None:
             raise HTTPException(
                 status_code=503,
@@ -806,19 +806,19 @@ async def analyze_with_ai(request_data: TextRequest):
             }
             formatted_matches.append(formatted_match)
         
-        # Também verifica erros de acentuação com IA se disponível
+       
         if ENABLE_LLM and GEMINI_API_KEY:
             erros_acentuacao = await detectar_erros_acentuacao_com_ia(request_data.text, formatted_matches)
             formatted_matches.extend(erros_acentuacao)
         
         num_erros = len(formatted_matches)
         
-        # Análise completa com IA
-        print("🤖 Iniciando análise completa com IA...")
+       
+        print("Iniciando análise completa com IA...")
         ai_analysis = await analisar_redacao_completa(request_data.text, formatted_matches)
         llm_punctuation_suggestion = None
         
-        # Sugestão de pontuação apenas se não houver erros
+        
         if num_erros == 0:
             llm_punctuation_suggestion = await get_pontuacao_sugestao(request_data.text)
         

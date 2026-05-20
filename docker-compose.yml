@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  backend:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - LANGUAGETOOL_URL=${LANGUAGETOOL_URL}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=gemini-1.5-flash
+      - ENABLE_LLM=true
+    depends_on:
+      - languagetool
+    restart: unless-stopped
+
+  languagetool:
+    image: erikvl87/languagetool
+    ports:
+      - "8010:8010"
+    restart: unless-stopped

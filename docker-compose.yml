@@ -6,16 +6,24 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - LANGUAGETOOL_URL=${LANGUAGETOOL_URL}
+      - LANGUAGETOOL_URL=http://languagetool:8010
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - GEMINI_MODEL=gemini-1.5-flash
       - ENABLE_LLM=true
     depends_on:
       - languagetool
+    networks:
+      - tcc-network
     restart: unless-stopped
 
   languagetool:
     image: erikvl87/languagetool
     ports:
       - "8010:8010"
+    networks:
+      - tcc-network
     restart: unless-stopped
+
+networks:
+  tcc-network:
+    driver: bridge

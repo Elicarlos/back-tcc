@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from schemas import TextRequest
 import uvicorn
 import httpx
@@ -8,6 +8,11 @@ import asyncio
 from typing import Optional, Dict, List
 from fastapi.middleware.cors import CORSMiddleware
 import google.generativeai as genai
+from sqlalchemy.orm import Session
+from passlib.context import CryptContext
+import database
+import models
+import schemas
 
 
 def obter_languagetool_url():
@@ -412,16 +417,17 @@ async def detectar_erros_acentuacao_com_ia(texto: str, matches_languagetool: Lis
         return []
 
 
-async def analisar_redacao_completa(texto: str, matches: List[Dict]) -> Optional[Dict]:
+async def analisar_redacao_completa(texto: str, matches: List[Dict], tema: Optional[str] = None) -> Optional[Dict]:
     """Análise geral da redação usando IA - usado quando não há erros básicos"""
     if not ENABLE_LLM or not GEMINI_API_KEY:
         return None
     
     try:
         num_erros = len(matches)
+        contexto_tema = f"\nTema da Proposta de Redação: \"{tema}\"" if tema else ""
         
         if num_erros == 0:
-            prompt = f"""Analise esta redação e responda SOMENTE com JSON válido (sem texto adicional, sem markdown):
+            prompt = f"""Analise esta redação{contexto_tema} e responda SOMENTE com JSON válido (sem texto adicional, sem markdown):
 
 Texto: "{texto}"
 
@@ -450,7 +456,7 @@ IMPORTANTE:
         else:
             
             erros_resumo = "\n".join([f"- {m['message']}" for m in matches[:3]])
-            prompt = f"""Analise esta redação e responda SOMENTE com JSON válido (sem texto adicional, sem markdown):
+            prompt = f"""Analise esta redação{contexto_tema} e responda SOMENTE com JSON válido (sem texto adicional, sem markdown):
 
 Texto: "{texto}"
 Erros encontrados: {num_erros}
@@ -638,6 +644,40 @@ async def startup_event():
     """
     global http_client
     
+    try:
+        models.Base.metadata.create_all(bind=database.engine)
+        print("✓ Tabelas do banco de dados criadas com sucesso.")
+        
+        # População automática de temas se a tabela estiver vazia
+        db_session = database.SessionLocal()
+        try:
+            if db_session.query(models.Theme).count() == 0:
+                print("Populando banco de dados com temas iniciais do ENEM...")
+                temas_iniciais = [
+                    {"title": "Desafios para a valorização da herança africana no Brasil", "source": "ENEM 2024"},
+                    {"title": "Desafios para o enfrentamento da invisibilidade do trabalho de cuidado realizado pela mulher", "source": "ENEM 2023"},
+                    {"title": "Valorização de comunidades e povos tradicionais", "source": "ENEM 2022"},
+                    {"title": "Invisibilidade e registro civil: garantia de acesso à cidadania no Brasil", "source": "ENEM 2021"},
+                    {"title": "O estigma associado às doenças mentais na sociedade brasileira", "source": "ENEM 2020"},
+                    {"title": "Democratização do acesso ao cinema no Brasil", "source": "ENEM 2019"},
+                    {"title": "Manipulação do comportamento do usuário pelo controle de dados na internet", "source": "ENEM 2018"},
+                    {"title": "Desafios para a formação educacional de surdos no Brasil", "source": "ENEM 2017"},
+                    {"title": "Caminhos para combater a intolerância religiosa no Brasil", "source": "ENEM 2016"}
+                ]
+                for tema_item in temas_iniciais:
+                    db_theme = models.Theme(title=tema_item["title"], source=tema_item["source"])
+                    db_session.add(db_theme)
+                db_session.commit()
+                print("✓ Temas iniciais do ENEM cadastrados com sucesso.")
+        except Exception as populate_err:
+            print(f"⚠ Erro ao popular temas iniciais: {populate_err}")
+            db_session.rollback()
+        finally:
+            db_session.close()
+            
+    except Exception as db_err:
+        print(f"⚠ Erro ao inicializar banco de dados: {db_err}")
+    
     # Cria o cliente HTTP de forma incondicional para permitir conexões futuras
     http_client = httpx.AsyncClient(
         timeout=httpx.Timeout(LANGUAGETOOL_TIMEOUT),
@@ -673,7 +713,7 @@ async def shutdown():
         print(f"Aviso durante shutdown: {e}")
 
 @app.post("/v2/check")
-async def check_text(request_data: TextRequest):
+async def check_text(request_data: TextRequest, db: Session = Depends(database.get_db)):
     """ Recebe o texto e verifica erros gramaticais usando LanguageTool (sem IA automática). """
     
     if http_client is None:
@@ -725,7 +765,7 @@ async def check_text(request_data: TextRequest):
         
         
 
-        return {
+        response_json = {
             "original_text": request_data.text,
             "corrections_found": num_erros,
             "matches": formatted_matches,
@@ -733,6 +773,26 @@ async def check_text(request_data: TextRequest):
             "ai_ready": num_erros == 0,  
             "suggestion": "Corrija os erros básicos e clique em 'Análise Completa com IA' para obter análise detalhada" if num_erros > 0 else None
         }
+        
+        try:
+            db_redacao = models.Redacao(
+                tema=request_data.theme,
+                texto=request_data.text
+            )
+            db.add(db_redacao)
+            db.commit()
+            db.refresh(db_redacao)
+
+            db_feedback = models.Feedback(
+                redacao_id=db_redacao.id,
+                dados_correcao=response_json
+            )
+            db.add(db_feedback)
+            db.commit()
+        except Exception as db_err:
+            print(f"Erro ao salvar no banco de dados em check_text: {db_err}")
+
+        return response_json
         
     except httpx.TimeoutException:
         raise HTTPException(
@@ -757,7 +817,7 @@ async def check_text(request_data: TextRequest):
 
 
 @app.post("/v2/analyze")
-async def analyze_with_ai(request_data: TextRequest):
+async def analyze_with_ai(request_data: TextRequest, db: Session = Depends(database.get_db)):
     """Endpoint separado para análise completa com IA - acionado manualmente pelo usuário"""
     if not ENABLE_LLM or not GEMINI_API_KEY:
         raise HTTPException(
@@ -813,14 +873,14 @@ async def analyze_with_ai(request_data: TextRequest):
         
        
         print("Iniciando análise completa com IA...")
-        ai_analysis = await analisar_redacao_completa(request_data.text, formatted_matches)
+        ai_analysis = await analisar_redacao_completa(request_data.text, formatted_matches, request_data.theme)
         llm_punctuation_suggestion = None
         
         
         if num_erros == 0:
             llm_punctuation_suggestion = await get_pontuacao_sugestao(request_data.text)
         
-        return {
+        response_json = {
             "original_text": request_data.text,
             "corrections_found": num_erros,
             "matches": formatted_matches,
@@ -830,12 +890,311 @@ async def analyze_with_ai(request_data: TextRequest):
             "ai_ready": num_erros == 0
         }
         
+        try:
+            db_redacao = models.Redacao(
+                tema=request_data.theme,
+                texto=request_data.text
+            )
+            db.add(db_redacao)
+            db.commit()
+            db.refresh(db_redacao)
+
+            db_feedback = models.Feedback(
+                redacao_id=db_redacao.id,
+                dados_correcao=response_json
+            )
+            db.add(db_feedback)
+            db.commit()
+        except Exception as db_err:
+            print(f"Erro ao salvar no banco de dados em analyze_with_ai: {db_err}")
+
+        return response_json
+        
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="Timeout ao conectar ao LanguageTool.")
     except httpx.ConnectError:
         raise HTTPException(status_code=503, detail="LanguageTool offline.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")
+
+# ==========================================
+# PERSISTÊNCIA E INFRAESTRUTURA DE DADOS
+# ==========================================
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def obter_hash_senha(password: str) -> str:
+    return pwd_context.hash(password)
+
+def verificar_senha(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
+
+# --- ROTAS DE AUTENTICAÇÃO ---
+
+@app.post("/auth/register", response_model=schemas.UserResponse)
+def register_user(user_in: schemas.UserCreate, db: Session = Depends(database.get_db)):
+    db_user = db.query(models.User).filter(models.User.email == user_in.email).first()
+    if db_user:
+        raise HTTPException(status_code=400, detail="E-mail já cadastrado.")
+    
+    novo_usuario = models.User(
+        name=user_in.name,
+        email=user_in.email,
+        password_hash=obter_hash_senha(user_in.password),
+        role=user_in.role,
+        school_id=user_in.school_id,
+        classroom_id=user_in.classroom_id
+    )
+    db.add(novo_usuario)
+    db.commit()
+    db.refresh(novo_usuario)
+    return novo_usuario
+
+@app.post("/auth/login", response_model=schemas.UserResponse)
+def login_user(login_in: schemas.UserLogin, db: Session = Depends(database.get_db)):
+    user = db.query(models.User).filter(models.User.email == login_in.email).first()
+    if not user or not verificar_senha(login_in.password, user.password_hash):
+        raise HTTPException(status_code=400, detail="E-mail ou senha incorretos.")
+    return user
+
+# --- ROTAS DE ESCOLA ---
+
+@app.post("/schools", response_model=schemas.SchoolResponse)
+def create_school(school_in: schemas.SchoolCreate, db: Session = Depends(database.get_db)):
+    nova_escola = models.School(name=school_in.name)
+    db.add(nova_escola)
+    db.commit()
+    db.refresh(nova_escola)
+    return nova_escola
+
+@app.get("/schools", response_model=List[schemas.SchoolResponse])
+def list_schools(db: Session = Depends(database.get_db)):
+    return db.query(models.School).all()
+
+# --- ROTAS DE TURMAS ---
+
+@app.post("/classrooms", response_model=schemas.ClassroomResponse)
+def create_classroom(classroom_in: schemas.ClassroomCreate, db: Session = Depends(database.get_db)):
+    nova_turma = models.Classroom(
+        name=classroom_in.name,
+        school_id=classroom_in.school_id
+    )
+    db.add(nova_turma)
+    db.commit()
+    db.refresh(nova_turma)
+    return nova_turma
+
+@app.get("/classrooms", response_model=List[schemas.ClassroomResponse])
+def list_classrooms(db: Session = Depends(database.get_db)):
+    return db.query(models.Classroom).all()
+
+@app.get("/classrooms/school/{school_id}", response_model=List[schemas.ClassroomResponse])
+def list_classrooms_by_school(school_id: int, db: Session = Depends(database.get_db)):
+    return db.query(models.Classroom).filter(models.Classroom.school_id == school_id).all()
+
+# --- ROTAS DE ATIVIDADES ---
+
+@app.post("/activities", response_model=schemas.ActivityResponse)
+def create_activity(activity_in: schemas.ActivityCreate, db: Session = Depends(database.get_db)):
+    nova_atividade = models.Activity(
+        theme=activity_in.theme,
+        description=activity_in.description,
+        due_date=activity_in.due_date,
+        classroom_id=activity_in.classroom_id,
+        created_by=activity_in.created_by
+    )
+    db.add(nova_atividade)
+    db.commit()
+    db.refresh(nova_atividade)
+    return nova_atividade
+
+@app.get("/activities/classroom/{classroom_id}", response_model=List[schemas.ActivityResponse])
+def list_activities_by_classroom(classroom_id: int, db: Session = Depends(database.get_db)):
+    return db.query(models.Activity).filter(models.Activity.classroom_id == classroom_id).all()
+
+# --- ROTAS DE REDAÇÕES ---
+
+@app.post("/essays", response_model=schemas.EssayDetailResponse)
+async def create_essay(essay_in: schemas.EssayCreate, db: Session = Depends(database.get_db)):
+    student = db.query(models.User).filter(models.User.id == essay_in.student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Estudante não encontrado.")
+    
+    # Realiza correção/análise se o JSON não estiver pré-calculado
+    correction_data = None
+    if essay_in.correction_json:
+        try:
+            correction_data = json.loads(essay_in.correction_json)
+        except:
+            pass
+            
+    if not correction_data:
+        formatted_matches = []
+        if http_client is not None:
+            try:
+                response = await http_client.post(
+                    f"{LANGUAGETOOL_URL}/v2/check",
+                    data={
+                        "text": essay_in.text,
+                        "language": "pt-BR",
+                        "level": "picky",
+                        "enabledOnly": "false",
+                    }
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    for match in data.get("matches", []):
+                        formatted_match = {
+                            "message": match.get("message", ""),
+                            "replacements": match.get("replacements", []),
+                            "offset": match.get("offset", 0),
+                            "length": match.get("length", 0),
+                            "ruleId": match.get("rule", {}).get("id", ""),
+                            "context": match.get("context", {}),
+                        }
+                        formatted_matches.append(formatted_match)
+            except Exception as e:
+                print(f"Erro LanguageTool em /essays: {e}")
+                
+        if ENABLE_LLM and GEMINI_API_KEY:
+            try:
+                erros_acentuacao = await detectar_erros_acentuacao_com_ia(essay_in.text, formatted_matches)
+                formatted_matches.extend(erros_acentuacao)
+            except Exception as e:
+                print(f"Erro em acentuação: {e}")
+
+        num_erros = len(formatted_matches)
+        
+        ai_analysis = None
+        if ENABLE_LLM and GEMINI_API_KEY:
+            try:
+                ai_analysis = await analisar_redacao_completa(essay_in.text, formatted_matches, essay_in.theme)
+            except Exception as e:
+                print(f"Erro IA: {e}")
+
+        llm_punctuation_suggestion = None
+        if num_erros == 0 and ENABLE_LLM and GEMINI_API_KEY:
+            try:
+                llm_punctuation_suggestion = await get_pontuacao_sugestao(essay_in.text)
+            except Exception as e:
+                print(f"Erro pontuação: {e}")
+
+        correction_data = {
+            "original_text": essay_in.text,
+            "corrections_found": num_erros,
+            "matches": formatted_matches,
+            "llm_punctuation_suggestion": llm_punctuation_suggestion,
+            "ai_analysis": ai_analysis,
+            "ai_used": bool(ai_analysis or llm_punctuation_suggestion),
+            "ai_ready": num_erros == 0
+        }
+
+    c1, c2, c3, c4, c5 = 120, 120, 120, 120, 120
+    if correction_data and correction_data.get("ai_analysis") and isinstance(correction_data["ai_analysis"], dict):
+        nivel = correction_data["ai_analysis"].get("nivel_estimado", "intermediário").lower()
+        if nivel == "avançado":
+            c1, c2, c3, c4, c5 = 160, 160, 160, 160, 160
+        elif nivel == "básico":
+            c1, c2, c3, c4, c5 = 80, 80, 80, 80, 80
+            
+        num_erros = correction_data.get("corrections_found", 0)
+        if num_erros > 15:
+            c1 = 40
+        elif num_erros > 8:
+            c1 = 80
+        elif num_erros > 3:
+            c1 = 120
+        elif num_erros > 0:
+            c1 = 160
+        else:
+            c1 = 200
+
+    score_c1 = essay_in.score_c1 if essay_in.score_c1 > 0 else c1
+    score_c2 = essay_in.score_c2 if essay_in.score_c2 > 0 else c2
+    score_c3 = essay_in.score_c3 if essay_in.score_c3 > 0 else c3
+    score_c4 = essay_in.score_c4 if essay_in.score_c4 > 0 else c4
+    score_c5 = essay_in.score_c5 if essay_in.score_c5 > 0 else c5
+    score_total = score_c1 + score_c2 + score_c3 + score_c4 + score_c5
+
+    db_essay = models.Essay(
+        student_id=essay_in.student_id,
+        activity_id=essay_in.activity_id,
+        theme=essay_in.theme,
+        text=essay_in.text,
+        score_c1=score_c1,
+        score_c2=score_c2,
+        score_c3=score_c3,
+        score_c4=score_c4,
+        score_c5=score_c5,
+        score_total=score_total,
+        correction_json=json.dumps(correction_data),
+        teacher_notes=essay_in.teacher_notes
+    )
+
+    student.quota_used += 1
+    db.add(db_essay)
+    db.commit()
+    db.refresh(db_essay)
+    return db_essay
+
+@app.get("/essays/student/{student_id}", response_model=List[schemas.EssayResponse])
+def list_essays_by_student(student_id: int, db: Session = Depends(database.get_db)):
+    return db.query(models.Essay).filter(models.Essay.student_id == student_id).order_by(models.Essay.created_at.desc()).all()
+
+@app.get("/essays/classroom/{classroom_id}", response_model=List[schemas.EssayResponse])
+def list_essays_by_classroom(classroom_id: int, db: Session = Depends(database.get_db)):
+    return db.query(models.Essay).join(models.User, models.Essay.student_id == models.User.id).filter(models.User.classroom_id == classroom_id).order_by(models.Essay.created_at.desc()).all()
+
+@app.get("/essays/{essay_id}", response_model=schemas.EssayDetailResponse)
+def get_essay_detail(essay_id: int, db: Session = Depends(database.get_db)):
+    essay = db.query(models.Essay).filter(models.Essay.id == essay_id).first()
+    if not essay:
+        raise HTTPException(status_code=404, detail="Redação não encontrada.")
+    return essay
+
+@app.patch("/essays/{essay_id}/notes", response_model=schemas.EssayDetailResponse)
+def update_essay_notes(essay_id: int, notes_in: Dict[str, str], db: Session = Depends(database.get_db)):
+    essay = db.query(models.Essay).filter(models.Essay.id == essay_id).first()
+    if not essay:
+        raise HTTPException(status_code=404, detail="Redação não encontrada.")
+    
+    essay.teacher_notes = notes_in.get("teacher_notes", "")
+    db.commit()
+    db.refresh(essay)
+    return essay
+
+@app.get("/themes", response_model=List[schemas.ThemeResponse])
+def list_themes(db: Session = Depends(database.get_db)):
+    return db.query(models.Theme).filter(models.Theme.active == True).order_by(models.Theme.source.desc(), models.Theme.created_at.desc()).all()
+
+@app.post("/themes", response_model=schemas.ThemeResponse)
+def create_theme(theme: schemas.ThemeCreate, db: Session = Depends(database.get_db)):
+    existing = db.query(models.Theme).filter(models.Theme.title == theme.title).first()
+    if existing:
+        if not existing.active:
+            existing.active = True
+            existing.source = theme.source
+            db.commit()
+            db.refresh(existing)
+            return existing
+        raise HTTPException(status_code=400, detail="Este tema já está cadastrado.")
+    
+    db_theme = models.Theme(title=theme.title, source=theme.source)
+    db.add(db_theme)
+    db.commit()
+    db.refresh(db_theme)
+    return db_theme
+
+@app.delete("/themes/{theme_id}")
+def delete_theme(theme_id: int, db: Session = Depends(database.get_db)):
+    db_theme = db.query(models.Theme).filter(models.Theme.id == theme_id).first()
+    if not db_theme:
+        raise HTTPException(status_code=404, detail="Tema não encontrado.")
+    
+    # Soft delete
+    db_theme.active = False
+    db.commit()
+    return {"message": "Tema removido com sucesso."}
 
 if __name__ == "__main__":
     print("Iniciando o servidor FastAPI... em http://0.0.0.0:8000")

@@ -10,8 +10,10 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - GEMINI_MODEL=gemini-1.5-flash
       - ENABLE_LLM=true
+      - DATABASE_URL=postgresql://tcc_user:tcc_pass@db:5432/tcc_db
     depends_on:
       - languagetool
+      - db
     networks:
       - tcc-network
     restart: unless-stopped
@@ -23,6 +25,24 @@ services:
     networks:
       - tcc-network
     restart: unless-stopped
+
+  db:
+    image: postgres:15-alpine
+    container_name: tcc_db
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: tcc_db
+      POSTGRES_USER: tcc_user
+      POSTGRES_PASSWORD: tcc_pass
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - tcc-network
+    restart: unless-stopped
+
+volumes:
+  pgdata:
 
 networks:
   tcc-network:

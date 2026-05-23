@@ -1,0 +1,19 @@
+import os
+
+def obter_languagetool_url():
+    url = os.getenv("LANGUAGETOOL_URL")
+    if url:
+        return url
+    if os.path.exists("/.dockerenv"):
+        return "http://languagetool:8010"
+    return "http://127.0.0.1:8010"
+
+class Settings:
+    LANGUAGETOOL_URL: str = obter_languagetool_url()
+    LANGUAGETOOL_TIMEOUT: float = float(os.getenv("LANGUAGETOOL_TIMEOUT", "30.0"))
+    
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "AIzaSyA8wznDIh3Vhi3dgovlCE47Azb1_q6-FCQ")
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-pro")
+    ENABLE_LLM: bool = os.getenv("ENABLE_LLM", "true").lower() == "true"
+
+settings = Settings()

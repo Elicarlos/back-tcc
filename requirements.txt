@@ -8,3 +8,4 @@ alembic==1.12.1
 psycopg2-binary==2.9.9
 passlib[bcrypt]==1.7.4
 python-jose[cryptography]==3.3.0
+email-validator>=2.0.0

@@ -454,3 +454,98 @@ IMPORTANTE:
     except Exception as e:
         print(f"Erro na análise completa: {e}")
         return None
+
+
+async def analisar_imagem_redacao(image_bytes: bytes, mime_type: str, tema: Optional[str] = None) -> Optional[Dict]:
+    """Analisa a imagem manuscrita diretamente por visão computacional usando IA"""
+    if not settings.ENABLE_LLM or not settings.GEMINI_API_KEY:
+        return None
+    
+    contexto_tema = f"\nTema da Proposta de Redação: \"{tema}\"" if tema else ""
+    
+    prompt = f"""Você é um corretor especialista do ENEM e tutor de redação em português do Brasil.
+    Analise a imagem da redação manuscrita fornecida{contexto_tema}.
+    
+    Você deve realizar as seguintes etapas:
+    1. Transcrever todo o texto legível da redação.
+    2. Avaliar a redação com base nas 5 competências do ENEM (C1, C2, C3, C4, C5), dando uma nota de 0 a 200 para cada uma (múltiplos de 40).
+    3. Fazer uma análise descritiva de Coesão e Coerência.
+    4. Listar pontos fortes, pontos de melhoria e sugestões gerais.
+    5. Identificar trechos específicos com problemas (erros gramaticais, ortografia, concordância, estrutura) e propor a correção com explicação didática.
+    
+    Responda APENAS com um objeto JSON válido no seguinte formato:
+    {{
+        "texto_transcrito": "O texto completo que foi transcrito do manuscrito da imagem",
+        "nivel_estimado": "básico" ou "intermediário" ou "avançado",
+        "pontuacao_estimada": {{
+            "c1": 120,
+            "c2": 160,
+            "c3": 120,
+            "c4": 120,
+            "c5": 80,
+            "total": 600
+        }},
+        "coesao": "análise descritiva sobre a coesão textual",
+        "coerencia": "análise descritiva sobre a coerência textual",
+        "sugestoes_gerais": ["sugestão 1", "sugestão 2"],
+        "pontos_fortes": ["ponto forte 1", "ponto forte 2"],
+        "pontos_melhoria": ["ponto de melhoria 1", "ponto de melhoria 2"],
+        "exemplos_melhoria": [
+            {{
+                "problema": "trecho problemático identificado no manuscrito",
+                "sugestao": "versão corrigida e melhorada do trecho",
+                "explicacao": "explicação didática do erro e da correção"
+            }}
+        ]
+    }}
+    
+    IMPORTANTE: 
+    - Retorne APENAS o JSON. Não use blocos de código com markdown (```json).
+    - Se a imagem não contiver uma redação legível, retorne um erro amigável no campo "erro".
+    """
+    
+    try:
+        model = obter_modelo_gemini()
+        # Se for gemini-pro, forçar gemini-1.5-flash pois gemini-pro antigo não suporta imagem
+        modelo_nome = "gemini-1.5-flash"
+        if model and hasattr(model, "model_name") and "pro" in model.model_name and "1.5" not in model.model_name:
+            model_vision = genai.GenerativeModel(model_name=modelo_nome)
+        else:
+            model_vision = model or genai.GenerativeModel(model_name=modelo_nome)
+
+        contents = [
+            prompt,
+            {
+                "mime_type": mime_type,
+                "data": image_bytes
+            }
+        ]
+        
+        response = model_vision.generate_content(
+            contents,
+            generation_config=genai.types.GenerationConfig(
+                temperature=0.3,
+                max_output_tokens=1500,
+                response_mime_type="application/json"
+            )
+        )
+        
+        if response and response.text:
+            resposta_texto = response.text.strip()
+            
+            if "```json" in resposta_texto:
+                resposta_texto = resposta_texto.split("```json")[1].split("```")[0].strip()
+            elif "```" in resposta_texto:
+                resposta_texto = resposta_texto.split("```")[1].split("```")[0].strip()
+            
+            import re
+            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', resposta_texto, re.DOTALL)
+            if json_match:
+                resposta_texto = json_match.group(0)
+            
+            return json.loads(resposta_texto)
+            
+    except Exception as e:
+        print(f"Erro na análise de imagem com IA: {e}")
+        return None
+

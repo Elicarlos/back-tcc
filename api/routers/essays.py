@@ -5,7 +5,7 @@ from typing import List, Dict
 import database
 import models
 import schemas
-from services.ai_service import detectar_erros_acentuacao_com_ia, analisar_redacao_completa, get_pontuacao_sugestao
+from services.ai_service import detectar_erros_acentuacao_com_ia, analisar_redacao_completa, get_pontuacao_sugestao, analisar_redacao_completa_por_competencias
 from services.text_service import text_service
 from core.config import settings
 
@@ -63,11 +63,19 @@ async def create_essay(essay_in: schemas.EssayCreate, db: Session = Depends(data
         num_erros = len(formatted_matches)
         
         ai_analysis = None
+        ai_competencies_analysis = None
         if settings.ENABLE_LLM and settings.GEMINI_API_KEY:
             try:
                 ai_analysis = await analisar_redacao_completa(essay_in.text, formatted_matches, essay_in.theme)
             except Exception as e:
-                print(f"Erro IA: {e}")
+                print(f"Erro IA antiga: {e}")
+
+            try:
+                ai_competencies_analysis = await analisar_redacao_completa_por_competencias(
+                    essay_in.text, essay_in.theme, formatted_matches
+                )
+            except Exception as e:
+                print(f"Erro IA competências: {e}")
 
         llm_punctuation_suggestion = None
         if num_erros == 0 and settings.ENABLE_LLM and settings.GEMINI_API_KEY:
@@ -82,12 +90,23 @@ async def create_essay(essay_in: schemas.EssayCreate, db: Session = Depends(data
             "matches": formatted_matches,
             "llm_punctuation_suggestion": llm_punctuation_suggestion,
             "ai_analysis": ai_analysis,
-            "ai_used": bool(ai_analysis or llm_punctuation_suggestion),
+            "ai_competencies_analysis": ai_competencies_analysis,
+            "ai_used": bool(ai_analysis or ai_competencies_analysis or llm_punctuation_suggestion),
             "ai_ready": num_erros == 0
         }
 
     c1, c2, c3, c4, c5 = 120, 120, 120, 120, 120
-    if correction_data and correction_data.get("ai_analysis") and isinstance(correction_data["ai_analysis"], dict):
+    pontuacao_estimada = None
+    if correction_data and correction_data.get("ai_competencies_analysis"):
+        pontuacao_estimada = correction_data["ai_competencies_analysis"].get("pontuacao_estimada")
+
+    if pontuacao_estimada:
+        c1 = pontuacao_estimada.get("c1", 120)
+        c2 = pontuacao_estimada.get("c2", 120)
+        c3 = pontuacao_estimada.get("c3", 120)
+        c4 = pontuacao_estimada.get("c4", 120)
+        c5 = pontuacao_estimada.get("c5", 120)
+    elif correction_data and correction_data.get("ai_analysis") and isinstance(correction_data["ai_analysis"], dict):
         nivel = correction_data["ai_analysis"].get("nivel_estimado", "intermediário").lower()
         if nivel == "avançado":
             c1, c2, c3, c4, c5 = 160, 160, 160, 160, 160

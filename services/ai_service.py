@@ -65,21 +65,21 @@ def obter_modelo_gemini():
                     )
                 )
                 if test_response and test_response.text:
-                    print(f"✓ Modelo Gemini disponível e funcional: {modelo_nome}")
+                    print(f"[OK] Modelo Gemini disponível e funcional: {modelo_nome}")
                     _modelo_gemini_cache = model  # Cacheia o modelo válido
                     return model
             except Exception as test_error:
                 error_msg = str(test_error)
                 if "404" not in error_msg:
-                    print(f"✗ Modelo {modelo_nome} criado mas não funcional: {error_msg[:80]}")
+                    print(f"[ERRO] Modelo {modelo_nome} criado mas não funcional: {error_msg[:80]}")
                 continue
         except Exception as e:
             error_msg = str(e)
             if "404" not in error_msg:
-                print(f"✗ Modelo {modelo_nome} não disponível: {error_msg[:80]}")
+                print(f"[ERRO] Modelo {modelo_nome} não disponível: {error_msg[:80]}")
             continue
     
-    print("⚠ Erro: Nenhum modelo Gemini disponível após testar todas as opções")
+    print("[AVISO] Erro: Nenhum modelo Gemini disponível após testar todas as opções")
     return None
 
 
@@ -548,4 +548,54 @@ async def analisar_imagem_redacao(image_bytes: bytes, mime_type: str, tema: Opti
     except Exception as e:
         print(f"Erro na análise de imagem com IA: {e}")
         return None
+
+
+async def analisar_redacao_completa_por_competencias(texto: str, tema: Optional[str], erros_languagetool: List[Dict]) -> Dict:
+    """Orquestra a análise das 5 competências do ENEM de forma individualizada de maneira concorrente."""
+    from services.competencies_service import (
+        analisar_competencia_1,
+        analisar_competencia_2,
+        analisar_competencia_3,
+        analisar_competencia_4,
+        analisar_competencia_5
+    )
+    import asyncio
+
+    try:
+        c1_task = analisar_competencia_1(texto, erros_languagetool)
+        c2_task = analisar_competencia_2(texto, tema)
+        c3_task = analisar_competencia_3(texto, tema)
+        c4_task = analisar_competencia_4(texto)
+        c5_task = analisar_competencia_5(texto)
+
+        c1, c2, c3, c4, c5 = await asyncio.gather(c1_task, c2_task, c3_task, c4_task, c5_task)
+
+        total = c1.get("nota", 0) + c2.get("nota", 0) + c3.get("nota", 0) + c4.get("nota", 0) + c5.get("nota", 0)
+
+        return {
+            "pontuacao_estimada": {
+                "c1": c1.get("nota", 0),
+                "c2": c2.get("nota", 0),
+                "c3": c3.get("nota", 0),
+                "c4": c4.get("nota", 0),
+                "c5": c5.get("nota", 0),
+                "total": total
+            },
+            "detalhes_competencias": {
+                "c1": c1,
+                "c2": c2,
+                "c3": c3,
+                "c4": c4,
+                "c5": c5
+            }
+        }
+    except Exception as e:
+        print(f"Erro na análise completa por competências: {e}")
+        return {
+            "pontuacao_estimada": {
+                "c1": 120, "c2": 120, "c3": 120, "c4": 120, "c5": 120, "total": 600
+            },
+            "erro": str(e)
+        }
+
 

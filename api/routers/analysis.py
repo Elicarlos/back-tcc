@@ -7,7 +7,7 @@ import models
 from schemas import TextRequest
 from core.config import settings
 from services.text_service import text_service
-from services.ai_service import detectar_erros_acentuacao_com_ia, analisar_redacao_completa, get_pontuacao_sugestao
+from services.ai_service import detectar_erros_acentuacao_com_ia, analisar_redacao_completa, get_pontuacao_sugestao, analisar_redacao_completa_por_competencias
 
 
 router = APIRouter(prefix="/v2", tags=["analysis"])
@@ -152,6 +152,7 @@ async def analyze_with_ai(request_data: TextRequest, db: Session = Depends(datab
         
         print("Iniciando análise completa com IA...")
         ai_analysis = await analisar_redacao_completa(request_data.text, formatted_matches, request_data.theme)
+        ai_competencies_analysis = await analisar_redacao_completa_por_competencias(request_data.text, request_data.theme, formatted_matches)
         llm_punctuation_suggestion = None
         
         if num_erros == 0:
@@ -163,7 +164,8 @@ async def analyze_with_ai(request_data: TextRequest, db: Session = Depends(datab
             "matches": formatted_matches,
             "llm_punctuation_suggestion": llm_punctuation_suggestion,
             "ai_analysis": ai_analysis,
-            "ai_used": bool(ai_analysis or llm_punctuation_suggestion),
+            "ai_competencies_analysis": ai_competencies_analysis,
+            "ai_used": bool(ai_analysis or ai_competencies_analysis or llm_punctuation_suggestion),
             "ai_ready": num_erros == 0
         }
         

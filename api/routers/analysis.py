@@ -1,3 +1,4 @@
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, File as FastAPIFile, UploadFile, Form, Query
 from sqlalchemy.orm import Session
 import os

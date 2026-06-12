@@ -614,11 +614,6 @@ async def analisar_redacao_completa_por_competencias(texto: str, tema: Optional[
         }
     except Exception as e:
         print(f"Erro na análise completa por competências: {e}")
-        return {
-            "pontuacao_estimada": {
-                "c1": 120, "c2": 120, "c3": 120, "c4": 120, "c5": 120, "total": 600
-            },
-            "erro": str(e)
-        }
+        raise e
 
 

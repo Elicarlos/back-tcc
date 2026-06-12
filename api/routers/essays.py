@@ -17,6 +17,14 @@ async def create_essay(essay_in: schemas.EssayCreate, db: Session = Depends(data
     if not student:
         raise HTTPException(status_code=404, detail="Estudante não encontrado.")
     
+    # Impede envios sem nota manual se a IA estiver desativada no backend
+    is_manual = (essay_in.score_c1 > 0 or essay_in.score_c2 > 0 or essay_in.score_c3 > 0 or essay_in.score_c4 > 0 or essay_in.score_c5 > 0)
+    if not is_manual and (not settings.ENABLE_LLM or not settings.GEMINI_API_KEY):
+        raise HTTPException(
+            status_code=503,
+            detail="A correção por IA está desativada ou não configurada no backend e nenhuma nota manual foi fornecida."
+        )
+        
     correction_data = None
     if essay_in.correction_json:
         try:
@@ -95,35 +103,25 @@ async def create_essay(essay_in: schemas.EssayCreate, db: Session = Depends(data
             "ai_ready": num_erros == 0
         }
 
-    c1, c2, c3, c4, c5 = 120, 120, 120, 120, 120
+    c1, c2, c3, c4, c5 = 0, 0, 0, 0, 0
     pontuacao_estimada = None
     if correction_data and correction_data.get("ai_competencies_analysis"):
         pontuacao_estimada = correction_data["ai_competencies_analysis"].get("pontuacao_estimada")
 
     if pontuacao_estimada:
-        c1 = pontuacao_estimada.get("c1", 120)
-        c2 = pontuacao_estimada.get("c2", 120)
-        c3 = pontuacao_estimada.get("c3", 120)
-        c4 = pontuacao_estimada.get("c4", 120)
-        c5 = pontuacao_estimada.get("c5", 120)
-    elif correction_data and correction_data.get("ai_analysis") and isinstance(correction_data["ai_analysis"], dict):
-        nivel = correction_data["ai_analysis"].get("nivel_estimado", "intermediário").lower()
-        if nivel == "avançado":
-            c1, c2, c3, c4, c5 = 160, 160, 160, 160, 160
-        elif nivel == "básico":
-            c1, c2, c3, c4, c5 = 80, 80, 80, 80, 80
-            
-        num_erros = correction_data.get("corrections_found", 0)
-        if num_erros > 15:
-            c1 = 40
-        elif num_erros > 8:
-            c1 = 80
-        elif num_erros > 3:
-            c1 = 120
-        elif num_erros > 0:
-            c1 = 160
-        else:
-            c1 = 200
+        # Se a redação foi anulada, a pontuação estimada já estará preenchida com zeros no ai_service
+        c1 = pontuacao_estimada.get("c1", 0)
+        c2 = pontuacao_estimada.get("c2", 0)
+        c3 = pontuacao_estimada.get("c3", 0)
+        c4 = pontuacao_estimada.get("c4", 0)
+        c5 = pontuacao_estimada.get("c5", 0)
+    else:
+        # Sem nota da IA e sem notas manuais do professor, levantamos erro para evitar notas mockadas
+        if not is_manual:
+            raise HTTPException(
+                status_code=500,
+                detail="A correção por IA falhou e não gerou pontuação para a redação. Defina GEMINI_API_KEY no backend para análise ENEM."
+            )
 
     score_c1 = essay_in.score_c1 if essay_in.score_c1 > 0 else c1
     score_c2 = essay_in.score_c2 if essay_in.score_c2 > 0 else c2

@@ -559,9 +559,31 @@ async def analisar_redacao_completa_por_competencias(texto: str, tema: Optional[
         analisar_competencia_4,
         analisar_competencia_5
     )
+    from services.validation_service import verificar_anulacao_total
     import asyncio
 
     try:
+        # Validação prévia de anulação total (nota zero)
+        validacao = await verificar_anulacao_total(texto, tema)
+        if validacao.get("anulado"):
+            motivo = validacao.get("motivo")
+            justificativa = validacao.get("justificativa")
+            return {
+                "pontuacao_estimada": {
+                    "c1": 0, "c2": 0, "c3": 0, "c4": 0, "c5": 0, "total": 0
+                },
+                "detalhes_competencias": {
+                    "c1": {"nota": 0, "justificativa": f"Redação anulada por {motivo}: {justificativa}", "detalhes": {}},
+                    "c2": {"nota": 0, "justificativa": f"Redação anulada por {motivo}: {justificativa}", "detalhes": {}},
+                    "c3": {"nota": 0, "justificativa": f"Redação anulada por {motivo}: {justificativa}", "detalhes": {}},
+                    "c4": {"nota": 0, "justificativa": f"Redação anulada por {motivo}: {justificativa}", "detalhes": {}},
+                    "c5": {"nota": 0, "justificativa": f"Redação anulada por {motivo}: {justificativa}", "detalhes": {}}
+                },
+                "anulado": True,
+                "motivo_anulacao": motivo,
+                "justificativa_anulacao": justificativa
+            }
+
         c1_task = analisar_competencia_1(texto, erros_languagetool)
         c2_task = analisar_competencia_2(texto, tema)
         c3_task = analisar_competencia_3(texto, tema)
@@ -587,7 +609,8 @@ async def analisar_redacao_completa_por_competencias(texto: str, tema: Optional[
                 "c3": c3,
                 "c4": c4,
                 "c5": c5
-            }
+            },
+            "anulado": False
         }
     except Exception as e:
         print(f"Erro na análise completa por competências: {e}")

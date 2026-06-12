@@ -149,7 +149,8 @@ async def analisar_competencia_3(texto: str, tema: Optional[str] = None) -> Dict
     Instruções de Avaliação da Competência III:
     1. Projeto de texto: É o planejamento prévio que se percebe lendo a redação. Verifique se o texto tem uma direção clara, se os argumentos foram bem selecionados, hierarquizados estrategicamente e se cumprem o que foi prometido na introdução (tese).
     2. Desenvolvimento: Avalie o desdobramento e fundamentação das ideias e opiniões. Um bom desenvolvimento explica as ideias claramente, não deixando para o leitor a tarefa de adivinhar a relação entre os argumentos e o ponto de vista (evitando lacunas argumentativas).
-    3. Atribua uma das notas possíveis da grade do ENEM: 0, 40, 80, 120, 160 ou 200.
+    3. Regra de Nota Zero: A nota será zero caso o texto seja considerado apenas um aglomerado de palavras sem direção e que tangencia o tema.
+    4. Atribua uma das notas possíveis da grade do ENEM: 0, 40, 80, 120, 160 ou 200.
 
     Responda APENAS com um objeto JSON no seguinte formato:
     {{
@@ -244,7 +245,6 @@ async def analisar_competencia_5(texto: str) -> Dict:
     Analisa a Competência V: Proposta de intervenção e Direitos Humanos.
     - Direitos Humanos: Zera a Competência V se incitar tortura, morte, censura, ou negar direitos fundamentais.
     - 5 Elementos essenciais: Ação (o quê), Agente (quem), Modo/Meio (como), Efeito (para quê), Detalhamento (informação adicional de algum elemento).
-    - Nota calculada baseada na quantidade de elementos presentes na proposta mais completa (cada elemento vale 40 pontos).
     """
     if not settings.ENABLE_LLM or not settings.GEMINI_API_KEY:
         return {"nota": 120, "justificativa": "Análise da Competência V indisponível.", "detalhes": {}}
@@ -255,15 +255,20 @@ async def analisar_competencia_5(texto: str) -> Dict:
     "{texto}"
 
     Instruções de Avaliação da Competência V:
-    1. Direitos Humanos: Verifique se a proposta desrespeita os direitos humanos (ex: incitar tortura, morte, justiça com as próprias mãos, censura ou negar direitos fundamentais). Se houver desrespeito, a nota da Competência V deve ser 0 IMEDIATAMENTE.
-    2. Elementos da proposta: A nota é calculada contando a presença de 5 elementos essenciais na proposta mais completa do texto:
+    1. Regras para Nota Zero (0) na Competência V:
+       A nota na Competência V deve ser obrigatoriamente 0 se:
+       - O candidato não apresentar nenhuma proposta de intervenção.
+       - A proposta for copiada integralmente dos textos motivadores.
+       - A proposta elaborada não tiver nenhuma relação com o assunto/tema.
+       - A intervenção sugerida desrespeitar de forma explícita e deliberada os Direitos Humanos (como incitar violência, tortura, agressão física, censura ou negar direitos fundamentais).
+    2. Elementos da proposta (caso não se enquadre em Nota Zero):
+       A nota é calculada contando a presença de 5 elementos essenciais na proposta mais completa do texto (cada elemento presente soma 40 pontos, totalizando até 200):
        - Ação: O que deve ser feito na prática.
        - Agente: Quem vai executar a ação (Governo, mídia, escolas, sociedade, etc.).
        - Modo/Meio: Como ou por meio de que a ação será realizada.
        - Efeito: Para quê a ação será feita (consequência ou objetivo).
        - Detalhamento: Informação adicional, justificativa ou especificação a um dos quatro elementos anteriores.
-    3. Atribuição de Nota: Cada elemento identificado soma 40 pontos. Portanto, 5 elementos = 200 pontos, 4 elementos = 160 pontos, etc. Se houver desrespeito aos Direitos Humanos, a nota é obrigatoriamente 0.
-    4. Atribua uma das notas possíveis da grade do ENEM: 0, 40, 80, 120, 160 ou 200.
+    3. Atribua uma das notas possíveis da grade do ENEM: 0, 40, 80, 120, 160 ou 200.
 
     Responda APENAS com um objeto JSON no seguinte formato:
     {{
@@ -314,5 +319,6 @@ async def analisar_competencia_5(texto: str) -> Dict:
             return json.loads(response.text.strip())
     except Exception as e:
         print(f"Erro ao analisar Competência V: {e}")
+    
     
     return {"nota": 120, "justificativa": "Erro na execução da análise da Competência V.", "detalhes": {}}

@@ -10,7 +10,7 @@ def obter_languagetool_url():
         return url
     if os.path.exists("/.dockerenv"):
         return "http://languagetool:8010"
-    return "http://127.0.0.1:8010"
+    return "https://api.languagetool.org"
 
 class Settings:
     LANGUAGETOOL_URL: str = obter_languagetool_url()

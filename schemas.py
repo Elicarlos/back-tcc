@@ -19,6 +19,9 @@ class UserLogin(BaseModel):
     email: EmailStr
     password: str
 
+class UserGoogleLogin(BaseModel):
+    credential: str
+
 class UserResponse(BaseModel):
     id: int
     name: str

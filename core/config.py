@@ -1,4 +1,7 @@
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 def obter_languagetool_url():
     url = os.getenv("LANGUAGETOOL_URL")
@@ -15,5 +18,6 @@ class Settings:
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-pro")
     ENABLE_LLM: bool = os.getenv("ENABLE_LLM", "true").lower() == "true"
+    GOOGLE_CLIENT_ID: str = os.getenv("GOOGLE_CLIENT_ID", "")
 
 settings = Settings()

@@ -1,12 +1,15 @@
 import json
+import asyncio
 from typing import Dict, List, Optional
 import google.generativeai as genai
+import google.api_core.exceptions
 from core.config import settings
 
 if settings.GEMINI_API_KEY:
     genai.configure(api_key=settings.GEMINI_API_KEY)
 
 _modelo_gemini_cache = None
+_gemini_semaphore = asyncio.Semaphore(1)
 
 def listar_modelos_disponiveis():
     """Lista todos os modelos disponíveis na API"""
@@ -25,62 +28,170 @@ def listar_modelos_disponiveis():
 
 
 def obter_modelo_gemini():
-    """Obtém um modelo Gemini válido, tentando vários nomes e testando com uma chamada real"""
+    """Obtém um modelo Gemini válido, preferindo o configurado e fallbacks, sem chamadas de teste HTTP desnecessárias"""
     global _modelo_gemini_cache
     
     if _modelo_gemini_cache is not None:
         return _modelo_gemini_cache
     
+    modelo_preferencial = settings.GEMINI_MODEL or "gemini-2.5-flash"
     modelos_disponiveis = listar_modelos_disponiveis()
-    modelos_tentativas = []
     
+    # 1. Se conseguirmos listar modelos e a API KEY for válida, procuramos compatibilidade direta
     if modelos_disponiveis:
-        # Remove prefixo "models/" se existir e adiciona ambas as versões
-        for modelo in modelos_disponiveis[:5]:  # Limita a 5 para não demorar muito
-            modelos_tentativas.append(modelo)
-            if modelo.startswith("models/"):
-                modelos_tentativas.append(modelo.replace("models/", ""))
-    
-    # Adiciona modelos padrão como fallback
-    modelos_tentativas.extend([
+        nomes_preferenciais = [
+            modelo_preferencial,
+            f"models/{modelo_preferencial}",
+            modelo_preferencial.replace("models/", "")
+        ]
+        for nome in nomes_preferenciais:
+            for disponivel in modelos_disponiveis:
+                if disponivel.lower() == nome.lower() or disponivel.replace("models/", "").lower() == nome.replace("models/", "").lower():
+                    print(f"[OK] Usando modelo listado pela API: {disponivel}")
+                    try:
+                        model = genai.GenerativeModel(model_name=disponivel)
+                        _modelo_gemini_cache = model
+                        return model
+                    except Exception as e:
+                        print(f"Erro ao instanciar modelo {disponivel}: {e}")
+        
+        # Fallback para o primeiro modelo padrão compatível encontrado na lista, priorizando estáveis com cotas altas
+        for padrao in ["gemini-2.0-flash", "gemini-flash-latest", "gemini-1.5-flash-latest", "gemini-2.0-flash-lite", "gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-pro"]:
+            for disponivel in modelos_disponiveis:
+                if padrao in disponivel.lower():
+                    print(f"[OK] Modelo preferencial indisponível. Usando melhor disponível da lista: {disponivel}")
+                    try:
+                        model = genai.GenerativeModel(model_name=disponivel)
+                        _modelo_gemini_cache = model
+                        return model
+                    except Exception as e:
+                        print(f"Erro ao instanciar {disponivel}: {e}")
+        
+        # Pega o primeiro da lista como último recurso
+        if modelos_disponiveis:
+            disponivel = modelos_disponiveis[0]
+            print(f"[OK] Usando primeiro modelo disponível: {disponivel}")
+            try:
+                model = genai.GenerativeModel(model_name=disponivel)
+                _modelo_gemini_cache = model
+                return model
+            except Exception as e:
+                print(f"Erro ao instanciar primeiro modelo: {e}")
+
+    # 2. Fallback caso listar_modelos_disponiveis falhe ou retorne vazio
+    modelos_tentativas = [
+        modelo_preferencial,
+        "gemini-2.0-flash",
         "gemini-1.5-flash",
-        "gemini-2.0-flash-exp", 
-        "gemini-1.5-pro"
-    ])
-    
-    # Remove duplicatas mantendo ordem
+        "gemini-2.5-flash"
+    ]
     modelos_tentativas = list(dict.fromkeys(modelos_tentativas))
-    
-    print(f"Tentando {len(modelos_tentativas)} modelos...")
     
     for modelo_nome in modelos_tentativas:
         try:
+            print(f"Tentando instanciar fallback: {modelo_nome}")
             model = genai.GenerativeModel(model_name=modelo_nome)
-            # Testa se o modelo realmente funciona fazendo uma chamada simples
-            try:
-                test_response = model.generate_content(
-                    "Teste",
-                    generation_config=genai.types.GenerationConfig(
-                        max_output_tokens=10
-                    )
-                )
-                if test_response and test_response.text:
-                    print(f"[OK] Modelo Gemini disponível e funcional: {modelo_nome}")
-                    _modelo_gemini_cache = model  # Cacheia o modelo válido
-                    return model
-            except Exception as test_error:
-                error_msg = str(test_error)
-                if "404" not in error_msg:
-                    print(f"[ERRO] Modelo {modelo_nome} criado mas não funcional: {error_msg[:80]}")
-                continue
+            _modelo_gemini_cache = model
+            return model
         except Exception as e:
-            error_msg = str(e)
-            if "404" not in error_msg:
-                print(f"[ERRO] Modelo {modelo_nome} não disponível: {error_msg[:80]}")
-            continue
-    
-    print("[AVISO] Erro: Nenhum modelo Gemini disponível após testar todas as opções")
+            print(f"Erro ao instanciar fallback {modelo_nome}: {e}")
+            
+    print("[AVISO] Erro: Nenhum modelo Gemini disponível.")
     return None
+
+
+async def executar_chamada_gemini_com_retry(
+    prompt: str,
+    temperature: float = 0.3,
+    max_tokens: Optional[int] = None,
+    response_mime_type: Optional[str] = None,
+    image_bytes: Optional[bytes] = None,
+    mime_type: Optional[str] = None
+) -> Optional[str]:
+    """
+    Executa a chamada ao Gemini de forma centralizada e resiliente.
+    - Garante concorrência máxima de 1 usando semáforo.
+    - Introduz delay entre chamadas consecutivas para respeitar o limite de 5 RPM da camada gratuita.
+    - Implementa retentativas em caso de erro 429 (Rate Limit) ou respostas vazias/inválidas.
+    """
+    global _gemini_semaphore
+    
+    async with _gemini_semaphore:
+        # Garante espaçamento entre requisições consecutivas para respeitar a cota gratuita de 5 RPM
+        await asyncio.sleep(1.5)
+        
+        tentativas = 3
+        delay = 2.0
+        
+        for tentativa in range(1, tentativas + 1):
+            try:
+                model = obter_modelo_gemini()
+                if model is None:
+                    print("[ERRO] Modelo Gemini não disponível.")
+                    return None
+                
+                # Monta a configuração dinamicamente (nunca passamos max_output_tokens para evitar truncamento no backend)
+                config_args = {
+                    "temperature": temperature
+                }
+                if response_mime_type:
+                    config_args["response_mime_type"] = response_mime_type
+                    
+                generation_config = genai.types.GenerationConfig(**config_args)
+                
+                # Configura chamada com imagem se fornecido
+                if image_bytes and mime_type:
+                    modelo_nome = "gemini-1.5-flash"
+                    if hasattr(model, "model_name") and "pro" in model.model_name and "1.5" not in model.model_name:
+                        model_vision = genai.GenerativeModel(model_name=modelo_nome)
+                    else:
+                        model_vision = model
+                    
+                    contents = [
+                        prompt,
+                        {
+                            "mime_type": mime_type,
+                            "data": image_bytes
+                        }
+                    ]
+                    
+                    response = model_vision.generate_content(
+                        contents,
+                        generation_config=generation_config
+                    )
+                else:
+                    response = model.generate_content(
+                        prompt,
+                        generation_config=generation_config
+                    )
+                
+                if response and response.text:
+                    texto_resposta = response.text.strip()
+                    if texto_resposta:
+                        return texto_resposta
+                
+                print(f"[AVISO] Resposta do Gemini veio vazia (Tentativa {tentativa}/{tentativas}).")
+                
+            except google.api_core.exceptions.ResourceExhausted as re_err:
+                print(f"[AVISO] Rate limit (429) detectado. Aguardando {delay}s antes de tentar novamente (Tentativa {tentativa}/{tentativas})...")
+                await asyncio.sleep(delay)
+                delay *= 2
+                
+            except Exception as e:
+                error_msg = str(e)
+                if "429" in error_msg or "quota" in error_msg.lower() or "ResourceExhausted" in error_msg:
+                    print(f"[AVISO] Rate limit detectado no erro. Aguardando {delay}s antes de tentar novamente (Tentativa {tentativa}/{tentativas})...")
+                    await asyncio.sleep(delay)
+                    delay *= 2
+                    continue
+                
+                print(f"[ERRO] Falha ao chamar Gemini (Tentativa {tentativa}/{tentativas}): {e}")
+                if tentativa == tentativas:
+                    break
+                await asyncio.sleep(1.0)
+                
+        return None
+
 
 
 async def get_pontuacao_sugestao(text: str):
@@ -96,25 +207,11 @@ async def get_pontuacao_sugestao(text: str):
     Correção:"""
 
     try: 
-        model = obter_modelo_gemini()
-        if model is None:
-            return None
-        
-        generation_config = genai.types.GenerationConfig(
-            temperature=0.3,
-            max_output_tokens=500,
-        )
-        
-        response = model.generate_content(
+        return await executar_chamada_gemini_com_retry(
             prompt,
-            generation_config=generation_config
+            temperature=0.3,
+            max_tokens=500
         )
-        
-        if response and response.text:
-            return response.text.strip()
-        
-        return None
-            
     except Exception as e:
         print(f"Erro ao chamar Gemini: {str(e)}")
         return None
@@ -143,20 +240,14 @@ async def enriquecer_match_com_ia(texto: str, match: Dict) -> Dict:
         Forneça uma explicação didática e curta (máximo 2 linhas) sobre este erro, explicando por que está errado e como corrigir.
         Responda APENAS com a explicação, sem formatação ou prefixos."""
         
-        model = obter_modelo_gemini()
-        if model is None:
-            return match
-        
-        response = model.generate_content(
+        response_text = await executar_chamada_gemini_com_retry(
             prompt,
-            generation_config=genai.types.GenerationConfig(
-                temperature=0.3,
-                max_output_tokens=150
-            )
+            temperature=0.3,
+            max_tokens=150
         )
         
-        if response and response.text:
-            match["ai_explanation"] = response.text.strip()
+        if response_text:
+            match["ai_explanation"] = response_text
             
     except Exception as e:
         print(f"Erro ao enriquecer match com IA: {e}")
@@ -186,20 +277,15 @@ async def melhorar_sugestoes_com_ia(texto: str, match: Dict) -> Dict:
         Sugira 3 alternativas de correção adequadas ao contexto de uma redação formal.
         Responda APENAS com uma lista JSON no formato: ["sugestão1", "sugestão2", "sugestão3"]"""
 
-        model = obter_modelo_gemini()
-        if model is None:
-            return match
-        
-        response = model.generate_content(
+        response_text = await executar_chamada_gemini_com_retry(
             prompt,
-            generation_config=genai.types.GenerationConfig(
-                temperature=0.4,
-                max_output_tokens=200
-            )
+            temperature=0.4,
+            max_tokens=200,
+            response_mime_type="application/json"
         )
         
-        if response and response.text:
-            resposta_texto = response.text.strip()
+        if response_text:
+            resposta_texto = response_text.strip()
             
             if "```json" in resposta_texto:
                 resposta_texto = resposta_texto.split("```json")[1].split("```")[0].strip()
@@ -256,20 +342,15 @@ async def detectar_erros_acentuacao_com_ia(texto: str, matches_languagetool: Lis
 
         Se não houver erros REAIS de acentuação, retorne: []"""
 
-        model = obter_modelo_gemini()
-        if model is None:
-            return []
-        
-        response = model.generate_content(
+        response_text = await executar_chamada_gemini_com_retry(
             prompt,
-            generation_config=genai.types.GenerationConfig(
-                temperature=0.1,  
-                max_output_tokens=400,
-            )
+            temperature=0.1,
+            max_tokens=400,
+            response_mime_type="application/json"
         )
         
-        if response and response.text:
-            resposta_texto = response.text.strip()
+        if response_text:
+            resposta_texto = response_text.strip()
             
             if "```json" in resposta_texto:
                 resposta_texto = resposta_texto.split("```json")[1].split("```")[0].strip()
@@ -380,21 +461,15 @@ IMPORTANTE:
 - "sugestoes_gerais" deve ser um ARRAY de strings, não texto livre
 - Responda APENAS o JSON, sem texto adicional"""
 
-        model = obter_modelo_gemini()
-        if model is None:
-            return None
-        
-        response = model.generate_content(
+        response_text = await executar_chamada_gemini_com_retry(
             prompt,
-            generation_config=genai.types.GenerationConfig(
-                temperature=0.3,
-                max_output_tokens=800,
-                response_mime_type="application/json"
-            )
+            temperature=0.3,
+            max_tokens=800,
+            response_mime_type="application/json"
         )
         
-        if response and response.text:
-            resposta_texto = response.text.strip()
+        if response_text:
+            resposta_texto = response_text.strip()
             
             if "```json" in resposta_texto:
                 resposta_texto = resposta_texto.split("```json")[1].split("```")[0].strip()
@@ -505,33 +580,17 @@ async def analisar_imagem_redacao(image_bytes: bytes, mime_type: str, tema: Opti
     """
     
     try:
-        model = obter_modelo_gemini()
-        # Se for gemini-pro, forçar gemini-1.5-flash pois gemini-pro antigo não suporta imagem
-        modelo_nome = "gemini-1.5-flash"
-        if model and hasattr(model, "model_name") and "pro" in model.model_name and "1.5" not in model.model_name:
-            model_vision = genai.GenerativeModel(model_name=modelo_nome)
-        else:
-            model_vision = model or genai.GenerativeModel(model_name=modelo_nome)
-
-        contents = [
+        response_text = await executar_chamada_gemini_com_retry(
             prompt,
-            {
-                "mime_type": mime_type,
-                "data": image_bytes
-            }
-        ]
-        
-        response = model_vision.generate_content(
-            contents,
-            generation_config=genai.types.GenerationConfig(
-                temperature=0.3,
-                max_output_tokens=1500,
-                response_mime_type="application/json"
-            )
+            temperature=0.3,
+            max_tokens=1500,
+            response_mime_type="application/json",
+            image_bytes=image_bytes,
+            mime_type=mime_type
         )
         
-        if response and response.text:
-            resposta_texto = response.text.strip()
+        if response_text:
+            resposta_texto = response_text.strip()
             
             if "```json" in resposta_texto:
                 resposta_texto = resposta_texto.split("```json")[1].split("```")[0].strip()

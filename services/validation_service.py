@@ -1,8 +1,7 @@
 import json
 from typing import Dict, Optional
-import google.generativeai as genai
 from core.config import settings
-from services.ai_service import obter_modelo_gemini
+from services.ai_service import executar_chamada_gemini_com_retry
 
 async def verificar_anulacao_total(texto: str, tema: Optional[str] = None) -> Dict:
     """
@@ -49,21 +48,15 @@ async def verificar_anulacao_total(texto: str, tema: Optional[str] = None) -> Di
     """
 
     try:
-        model = obter_modelo_gemini()
-        if model is None:
-            return {"anulado": False, "motivo": "nenhum", "justificativa": "Modelo de IA indisponível."}
-
-        response = model.generate_content(
+        response_text = await executar_chamada_gemini_com_retry(
             prompt,
-            generation_config=genai.types.GenerationConfig(
-                temperature=0.1,
-                max_output_tokens=300,
-                response_mime_type="application/json"
-            )
+            temperature=0.1,
+            max_tokens=300,
+            response_mime_type="application/json"
         )
         
-        if response and response.text:
-            resultado = json.loads(response.text.strip())
+        if response_text:
+            resultado = json.loads(response_text.strip())
             return {
                 "anulado": bool(resultado.get("anulado", False)),
                 "motivo": resultado.get("motivo", "nenhum"),

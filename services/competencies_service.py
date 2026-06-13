@@ -1,8 +1,7 @@
 import json
 from typing import Dict, List, Optional
-import google.generativeai as genai
 from core.config import settings
-from services.ai_service import obter_modelo_gemini
+from services.ai_service import executar_chamada_gemini_com_retry
 
 async def analisar_competencia_1(texto: str, erros_languagetool: List[Dict]) -> Dict:
     """
@@ -42,20 +41,14 @@ async def analisar_competencia_1(texto: str, erros_languagetool: List[Dict]) -> 
     """
 
     try:
-        model = obter_modelo_gemini()
-        if model is None:
-            return {"nota": 120, "justificativa": "Modelo Gemini não disponível.", "detalhes": {}}
-
-        response = model.generate_content(
+        response_text = await executar_chamada_gemini_com_retry(
             prompt,
-            generation_config=genai.types.GenerationConfig(
-                temperature=0.2,
-                max_output_tokens=800,
-                response_mime_type="application/json"
-            )
+            temperature=0.2,
+            max_tokens=800,
+            response_mime_type="application/json"
         )
-        if response and response.text:
-            return json.loads(response.text.strip())
+        if response_text:
+            return json.loads(response_text.strip())
     except Exception as e:
         print(f"Erro ao analisar Competência I: {e}")
     
@@ -108,20 +101,14 @@ async def analisar_competencia_2(texto: str, tema: Optional[str] = None) -> Dict
     """
 
     try:
-        model = obter_modelo_gemini()
-        if model is None:
-            return {"nota": 120, "justificativa": "Modelo Gemini não disponível.", "detalhes": {}}
-
-        response = model.generate_content(
+        response_text = await executar_chamada_gemini_com_retry(
             prompt,
-            generation_config=genai.types.GenerationConfig(
-                temperature=0.2,
-                max_output_tokens=800,
-                response_mime_type="application/json"
-            )
+            temperature=0.2,
+            max_tokens=800,
+            response_mime_type="application/json"
         )
-        if response and response.text:
-            return json.loads(response.text.strip())
+        if response_text:
+            return json.loads(response_text.strip())
     except Exception as e:
         print(f"Erro ao analisar Competência II: {e}")
     
@@ -164,20 +151,14 @@ async def analisar_competencia_3(texto: str, tema: Optional[str] = None) -> Dict
     """
 
     try:
-        model = obter_modelo_gemini()
-        if model is None:
-            return {"nota": 120, "justificativa": "Modelo Gemini não disponível.", "detalhes": {}}
-
-        response = model.generate_content(
+        response_text = await executar_chamada_gemini_com_retry(
             prompt,
-            generation_config=genai.types.GenerationConfig(
-                temperature=0.2,
-                max_output_tokens=800,
-                response_mime_type="application/json"
-            )
+            temperature=0.2,
+            max_tokens=800,
+            response_mime_type="application/json"
         )
-        if response and response.text:
-            return json.loads(response.text.strip())
+        if response_text:
+            return json.loads(response_text.strip())
     except Exception as e:
         print(f"Erro ao analisar Competência III: {e}")
     
@@ -220,20 +201,14 @@ async def analisar_competencia_4(texto: str) -> Dict:
     """
 
     try:
-        model = obter_modelo_gemini()
-        if model is None:
-            return {"nota": 120, "justificativa": "Modelo Gemini não disponível.", "detalhes": {}}
-
-        response = model.generate_content(
+        response_text = await executar_chamada_gemini_com_retry(
             prompt,
-            generation_config=genai.types.GenerationConfig(
-                temperature=0.2,
-                max_output_tokens=800,
-                response_mime_type="application/json"
-            )
+            temperature=0.2,
+            max_tokens=800,
+            response_mime_type="application/json"
         )
-        if response and response.text:
-            return json.loads(response.text.strip())
+        if response_text:
+            return json.loads(response_text.strip())
     except Exception as e:
         print(f"Erro ao analisar Competência IV: {e}")
     
@@ -303,20 +278,14 @@ async def analisar_competencia_5(texto: str) -> Dict:
     """
 
     try:
-        model = obter_modelo_gemini()
-        if model is None:
-            return {"nota": 120, "justificativa": "Modelo Gemini não disponível.", "detalhes": {}}
-
-        response = model.generate_content(
+        response_text = await executar_chamada_gemini_com_retry(
             prompt,
-            generation_config=genai.types.GenerationConfig(
-                temperature=0.2,
-                max_output_tokens=800,
-                response_mime_type="application/json"
-            )
+            temperature=0.2,
+            max_tokens=800,
+            response_mime_type="application/json"
         )
-        if response and response.text:
-            return json.loads(response.text.strip())
+        if response_text:
+            return json.loads(response_text.strip())
     except Exception as e:
         print(f"Erro ao analisar Competência V: {e}")
     
